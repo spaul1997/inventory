@@ -1,0 +1,883 @@
+// Config + sample data for the Purchase Management module. Mirrors the
+// Master Management config pattern (list/form config driving generic
+// renderers) but adds line-item tables, cross-document references, and
+// status workflows. Reuses Master Management's supplier and raw-material
+// data so both modules stay consistent (materials procured here are the
+// same materials tracked in Master Management > Raw Material).
+import { masterEntities } from "./masterManagement.js";
+
+export const suppliers = masterEntities.supplier.list.rows.map((s) => s.name);
+export const materials = masterEntities["raw-material"].list.rows.map((m) => ({
+  code: m.code,
+  name: m.name,
+  unit: m.unit,
+  price: m.price,
+}));
+export const warehouses = masterEntities.warehouse.list.rows.map((w) => w.name);
+
+function materialByCode(code) {
+  return materials.find((m) => m.code === code);
+}
+
+export function lineTotal(item) {
+  const qty = Number(item.qty) || 0;
+  const price = Number(item.price) || 0;
+  const discount = Number(item.discount) || 0;
+  const tax = Number(item.tax) || 0;
+  const base = qty * price * (1 - discount / 100);
+  return base * (1 + tax / 100);
+}
+
+export function poTotals(items) {
+  const subtotal = items.reduce((sum, item) => sum + (Number(item.qty) || 0) * (Number(item.price) || 0), 0);
+  const discount = items.reduce((sum, item) => sum + (Number(item.qty) || 0) * (Number(item.price) || 0) * ((Number(item.discount) || 0) / 100), 0);
+  const tax = items.reduce((sum, item) => {
+    const base = (Number(item.qty) || 0) * (Number(item.price) || 0) * (1 - (Number(item.discount) || 0) / 100);
+    return sum + base * ((Number(item.tax) || 0) / 100);
+  }, 0);
+  const grandTotal = subtotal - discount + tax;
+  return { subtotal, discount, tax, grandTotal };
+}
+
+export const purchaseRequests = [
+  {
+    id: "PR-2026-001",
+    date: "2026-08-01",
+    requestedBy: "Rajesh Kumar",
+    department: "Production",
+    requiredDate: "2026-08-15",
+    priority: "High",
+    purpose: "Restock for Q3 production run",
+    items: [
+      { code: "RM-2001", name: "Mild Steel Rod 12mm", qty: 500, unit: "KG" },
+      { code: "RM-2003", name: "Copper Wire 2.5mm", qty: 200, unit: "MTR" },
+    ],
+    status: "Converted",
+    approvedBy: "Anil Deshmukh",
+    approvalDate: "2026-08-02",
+    approvalRemarks: "Approved as per production schedule.",
+    activity: [
+      { event: "Created", date: "2026-08-01", by: "Rajesh Kumar" },
+      { event: "Submitted for Approval", date: "2026-08-01", by: "Rajesh Kumar" },
+      { event: "Approved", date: "2026-08-02", by: "Anil Deshmukh" },
+      { event: "Converted", date: "2026-08-02", by: "Anil Deshmukh" },
+    ],
+  },
+  {
+    id: "PR-2026-002",
+    date: "2026-08-05",
+    requestedBy: "Priya Nair",
+    department: "Maintenance",
+    requiredDate: "2026-08-20",
+    priority: "Normal",
+    purpose: "Bearing replacement stock",
+    items: [{ code: "RM-2005", name: "Stainless Steel Sheet 2mm", qty: 100, unit: "KG" }],
+    status: "Approved",
+    approvedBy: "Anil Deshmukh",
+    approvalDate: "2026-08-06",
+    activity: [
+      { event: "Created", date: "2026-08-05", by: "Priya Nair" },
+      { event: "Submitted for Approval", date: "2026-08-05", by: "Priya Nair" },
+      { event: "Approved", date: "2026-08-06", by: "Anil Deshmukh" },
+    ],
+  },
+  {
+    id: "PR-2026-003",
+    date: "2026-08-10",
+    requestedBy: "Karan Mehta",
+    department: "Production",
+    requiredDate: "2026-08-25",
+    priority: "Urgent",
+    purpose: "Urgent shortage — line stoppage risk",
+    items: [
+      { code: "RM-2002", name: "ABS Plastic Granules", qty: 300, unit: "KG" },
+      { code: "RM-2004", name: "Industrial Adhesive", qty: 50, unit: "LTR" },
+      { code: "RM-2006", name: "Rubber Compound", qty: 80, unit: "KG" },
+    ],
+    status: "Pending Approval",
+    activity: [
+      { event: "Created", date: "2026-08-10", by: "Karan Mehta" },
+      { event: "Submitted for Approval", date: "2026-08-10", by: "Karan Mehta" },
+    ],
+  },
+  {
+    id: "PR-2026-004",
+    date: "2026-08-12",
+    requestedBy: "Sunita Rao",
+    department: "Quality",
+    requiredDate: "2026-08-18",
+    priority: "Low",
+    purpose: "Lab testing samples",
+    items: [{ code: "RM-2003", name: "Copper Wire 2.5mm", qty: 10, unit: "MTR" }],
+    status: "Rejected",
+    approvedBy: "Anil Deshmukh",
+    approvalDate: "2026-08-13",
+    approvalRemarks: "Not budgeted this quarter.",
+    activity: [
+      { event: "Created", date: "2026-08-12", by: "Sunita Rao" },
+      { event: "Submitted for Approval", date: "2026-08-12", by: "Sunita Rao" },
+      { event: "Rejected", date: "2026-08-13", by: "Anil Deshmukh" },
+    ],
+  },
+  {
+    id: "PR-2026-005",
+    date: "2026-08-14",
+    requestedBy: "Anil Deshmukh",
+    department: "Production",
+    requiredDate: "2026-09-01",
+    priority: "Normal",
+    purpose: "September production plan",
+    items: [
+      { code: "RM-2001", name: "Mild Steel Rod 12mm", qty: 400, unit: "KG" },
+      { code: "RM-2005", name: "Stainless Steel Sheet 2mm", qty: 150, unit: "KG" },
+    ],
+    status: "Draft",
+    activity: [{ event: "Created", date: "2026-08-14", by: "Anil Deshmukh" }],
+  },
+];
+
+export const purchaseOrders = [
+  {
+    id: "PO-2026-0045",
+    refPR: "PR-2026-001",
+    supplier: "Bharat Steel Corp",
+    date: "2026-08-02",
+    expectedDate: "2026-08-16",
+    warehouse: "Raw Material Store",
+    paymentTerms: "Net 30",
+    deliveryTerms: "Ex-Works",
+    items: [
+      { code: "RM-2001", name: "Mild Steel Rod 12mm", qty: 500, unit: "KG", price: 68, discount: 0, tax: 5 },
+      { code: "RM-2003", name: "Copper Wire 2.5mm", qty: 200, unit: "MTR", price: 95, discount: 2, tax: 12 },
+    ],
+    status: "Partially Received",
+    preparedBy: "Anil Deshmukh",
+    approvedBy: "Rajesh Kumar",
+    approvalDate: "2026-08-03",
+    activity: [
+      { event: "Created", date: "2026-08-02", by: "Anil Deshmukh" },
+      { event: "Submitted for Approval", date: "2026-08-02", by: "Anil Deshmukh" },
+      { event: "Approved", date: "2026-08-03", by: "Rajesh Kumar" },
+      { event: "Sent to Supplier", date: "2026-08-03", by: "System" },
+      { event: "Partially Received", date: "2026-08-14", by: "Priya Nair" },
+    ],
+  },
+  {
+    id: "PO-2026-0046",
+    refPR: "PR-2026-002",
+    supplier: "Precision Bearings Ltd",
+    date: "2026-08-06",
+    expectedDate: "2026-08-21",
+    warehouse: "Raw Material Store",
+    paymentTerms: "Net 15",
+    deliveryTerms: "FOB",
+    items: [{ code: "RM-2005", name: "Stainless Steel Sheet 2mm", qty: 100, unit: "KG", price: 210, discount: 0, tax: 5 }],
+    status: "Ordered",
+    preparedBy: "Anil Deshmukh",
+    approvedBy: "Rajesh Kumar",
+    approvalDate: "2026-08-07",
+    activity: [
+      { event: "Created", date: "2026-08-06", by: "Anil Deshmukh" },
+      { event: "Approved", date: "2026-08-07", by: "Rajesh Kumar" },
+      { event: "Sent to Supplier", date: "2026-08-07", by: "System" },
+    ],
+  },
+  {
+    id: "PO-2026-0047",
+    refPR: "",
+    supplier: "Hydro Tech Industries",
+    date: "2026-08-11",
+    expectedDate: "2026-08-28",
+    warehouse: "Raw Material Store",
+    paymentTerms: "Net 30",
+    deliveryTerms: "Ex-Works",
+    items: [
+      { code: "RM-2002", name: "ABS Plastic Granules", qty: 300, unit: "KG", price: 145, discount: 0, tax: 12 },
+      { code: "RM-2004", name: "Industrial Adhesive", qty: 50, unit: "LTR", price: 620, discount: 0, tax: 18 },
+      { code: "RM-2006", name: "Rubber Compound", qty: 80, unit: "KG", price: 180, discount: 0, tax: 12 },
+    ],
+    status: "Approved",
+    preparedBy: "Karan Mehta",
+    approvedBy: "Rajesh Kumar",
+    approvalDate: "2026-08-12",
+    activity: [
+      { event: "Created", date: "2026-08-11", by: "Karan Mehta" },
+      { event: "Approved", date: "2026-08-12", by: "Rajesh Kumar" },
+    ],
+  },
+  {
+    id: "PO-2026-0048",
+    refPR: "",
+    supplier: "Global Polymers Inc",
+    date: "2026-08-13",
+    expectedDate: "2026-08-27",
+    warehouse: "Raw Material Store",
+    paymentTerms: "Advance",
+    deliveryTerms: "CIF",
+    items: [
+      { code: "RM-2002", name: "ABS Plastic Granules", qty: 200, unit: "KG", price: 145, discount: 0, tax: 12 },
+      { code: "RM-2006", name: "Rubber Compound", qty: 100, unit: "KG", price: 180, discount: 0, tax: 12 },
+    ],
+    status: "Received",
+    preparedBy: "Anil Deshmukh",
+    approvedBy: "Rajesh Kumar",
+    approvalDate: "2026-08-13",
+    activity: [
+      { event: "Created", date: "2026-08-13", by: "Anil Deshmukh" },
+      { event: "Approved", date: "2026-08-13", by: "Rajesh Kumar" },
+      { event: "Sent to Supplier", date: "2026-08-14", by: "System" },
+      { event: "Received", date: "2026-08-20", by: "Priya Nair" },
+    ],
+  },
+  {
+    id: "PO-2026-0049",
+    refPR: "",
+    supplier: "ElectroParts Supply Co",
+    date: "2026-08-15",
+    expectedDate: "2026-09-02",
+    warehouse: "Main Manufacturing Plant",
+    paymentTerms: "Net 30",
+    deliveryTerms: "Ex-Works",
+    items: [{ code: "RM-2003", name: "Copper Wire 2.5mm", qty: 150, unit: "MTR", price: 95, discount: 0, tax: 12 }],
+    status: "Pending Approval",
+    preparedBy: "Sunita Rao",
+    activity: [
+      { event: "Created", date: "2026-08-15", by: "Sunita Rao" },
+      { event: "Submitted for Approval", date: "2026-08-15", by: "Sunita Rao" },
+    ],
+  },
+  {
+    id: "PO-2026-0050",
+    refPR: "",
+    supplier: "Bharat Steel Corp",
+    date: "2026-08-16",
+    expectedDate: "2026-09-05",
+    warehouse: "Raw Material Store",
+    paymentTerms: "Net 30",
+    deliveryTerms: "Ex-Works",
+    items: [
+      { code: "RM-2001", name: "Mild Steel Rod 12mm", qty: 300, unit: "KG", price: 68, discount: 0, tax: 5 },
+      { code: "RM-2005", name: "Stainless Steel Sheet 2mm", qty: 100, unit: "KG", price: 210, discount: 0, tax: 5 },
+    ],
+    status: "Draft",
+    preparedBy: "Anil Deshmukh",
+    activity: [{ event: "Created", date: "2026-08-16", by: "Anil Deshmukh" }],
+  },
+];
+
+export const goodsReceipts = [
+  {
+    id: "GRN-2026-0032",
+    refPO: "PO-2026-0045",
+    supplier: "Bharat Steel Corp",
+    date: "2026-08-14",
+    warehouse: "Raw Material Store",
+    receivedBy: "Priya Nair",
+    vehicleNumber: "MH-12-AB-4521",
+    challanNumber: "DC-88213",
+    invoiceNumber: "INV-BSC-3301",
+    items: [
+      { code: "RM-2001", name: "Mild Steel Rod 12mm", orderedQty: 500, receivedQty: 500, acceptedQty: 480, rejectedQty: 20, unit: "KG", batch: "B-0821-01", expiry: "" },
+    ],
+    inspectionRequired: true,
+    qualityStatus: "Partially Passed",
+    inspectedBy: "Sunita Rao",
+    inspectionDate: "2026-08-14",
+    inspectionRemarks: "20kg surface rust — rejected.",
+    status: "Completed",
+    stockUpdated: true,
+    activity: [
+      { event: "Created", date: "2026-08-14", by: "Priya Nair" },
+      { event: "Submitted for Inspection", date: "2026-08-14", by: "Priya Nair" },
+      { event: "Inspection Completed", date: "2026-08-14", by: "Sunita Rao" },
+      { event: "Stock Updated", date: "2026-08-14", by: "System" },
+    ],
+  },
+  {
+    id: "GRN-2026-0033",
+    refPO: "PO-2026-0048",
+    supplier: "Global Polymers Inc",
+    date: "2026-08-20",
+    warehouse: "Raw Material Store",
+    receivedBy: "Priya Nair",
+    vehicleNumber: "MH-14-CD-7789",
+    challanNumber: "DC-55102",
+    invoiceNumber: "INV-GPI-1187",
+    items: [
+      { code: "RM-2002", name: "ABS Plastic Granules", orderedQty: 200, receivedQty: 200, acceptedQty: 200, rejectedQty: 0, unit: "KG", batch: "B-0820-04", expiry: "" },
+      { code: "RM-2006", name: "Rubber Compound", orderedQty: 100, receivedQty: 100, acceptedQty: 92, rejectedQty: 8, unit: "KG", batch: "B-0820-05", expiry: "2027-08-20" },
+    ],
+    inspectionRequired: true,
+    qualityStatus: "Partially Passed",
+    inspectedBy: "Sunita Rao",
+    inspectionDate: "2026-08-20",
+    inspectionRemarks: "8kg rubber compound below hardness spec.",
+    status: "Completed",
+    stockUpdated: true,
+    activity: [
+      { event: "Created", date: "2026-08-20", by: "Priya Nair" },
+      { event: "Inspection Completed", date: "2026-08-20", by: "Sunita Rao" },
+      { event: "Stock Updated", date: "2026-08-20", by: "System" },
+    ],
+  },
+  {
+    id: "GRN-2026-0034",
+    refPO: "PO-2026-0046",
+    supplier: "Precision Bearings Ltd",
+    date: "2026-08-21",
+    warehouse: "Raw Material Store",
+    receivedBy: "Priya Nair",
+    vehicleNumber: "MH-12-EF-3390",
+    challanNumber: "DC-90344",
+    invoiceNumber: "INV-PBL-2245",
+    items: [
+      { code: "RM-2005", name: "Stainless Steel Sheet 2mm", orderedQty: 100, receivedQty: 100, acceptedQty: 0, rejectedQty: 0, unit: "KG", batch: "B-0821-09", expiry: "" },
+    ],
+    inspectionRequired: true,
+    qualityStatus: "Pending",
+    inspectedBy: "",
+    inspectionDate: "",
+    inspectionRemarks: "",
+    status: "Pending Inspection",
+    stockUpdated: false,
+    activity: [
+      { event: "Created", date: "2026-08-21", by: "Priya Nair" },
+      { event: "Submitted for Inspection", date: "2026-08-21", by: "Priya Nair" },
+    ],
+  },
+];
+
+export const purchaseReturns = [
+  {
+    id: "RET-2026-011",
+    refGRN: "GRN-2026-0032",
+    refPO: "PO-2026-0045",
+    supplier: "Bharat Steel Corp",
+    date: "2026-08-15",
+    warehouse: "Raw Material Store",
+    reason: "Damaged",
+    items: [
+      { code: "RM-2001", name: "Mild Steel Rod 12mm", receivedQty: 500, availableQty: 480, returnQty: 20, unit: "KG", price: 68, batch: "B-0821-01", reason: "Surface rust damage" },
+    ],
+    creditNoteNumber: "",
+    transportDetails: "Return via supplier pickup",
+    status: "Approved",
+    stockDeducted: true,
+    approvedBy: "Anil Deshmukh",
+    approvalDate: "2026-08-16",
+    activity: [
+      { event: "Created", date: "2026-08-15", by: "Priya Nair" },
+      { event: "Submitted for Approval", date: "2026-08-15", by: "Priya Nair" },
+      { event: "Approved", date: "2026-08-16", by: "Anil Deshmukh" },
+      { event: "Stock Deducted", date: "2026-08-16", by: "System" },
+    ],
+  },
+  {
+    id: "RET-2026-012",
+    refGRN: "GRN-2026-0033",
+    refPO: "PO-2026-0048",
+    supplier: "Global Polymers Inc",
+    date: "2026-08-21",
+    warehouse: "Raw Material Store",
+    reason: "Quality Rejection",
+    items: [
+      { code: "RM-2006", name: "Rubber Compound", receivedQty: 100, availableQty: 92, returnQty: 8, unit: "KG", price: 180, batch: "B-0820-05", reason: "Below hardness spec" },
+    ],
+    creditNoteNumber: "",
+    transportDetails: "",
+    status: "Pending Approval",
+    stockDeducted: false,
+    activity: [
+      { event: "Created", date: "2026-08-21", by: "Priya Nair" },
+      { event: "Submitted for Approval", date: "2026-08-21", by: "Priya Nair" },
+    ],
+  },
+];
+
+export { materialByCode };
+
+const PR_STATUSES = ["Draft", "Pending Approval", "Approved", "Rejected", "Converted", "Cancelled"];
+const PO_STATUSES = ["Draft", "Pending Approval", "Approved", "Ordered", "Partially Received", "Received", "Cancelled", "Returned"];
+const GRN_STATUSES = ["Draft", "Pending Inspection", "Accepted", "Partially Accepted", "Rejected", "Completed"];
+const RETURN_STATUSES = ["Draft", "Pending Approval", "Approved", "Returned", "Cancelled"];
+const PRIORITIES = ["Low", "Normal", "High", "Urgent"];
+const RETURN_REASONS = ["Damaged", "Defective", "Wrong Material", "Excess Quantity", "Quality Rejection", "Expired", "Other"];
+const departments = ["Production", "Maintenance", "Quality", "Warehouse"];
+const materialOptions = materials.map((m) => `${m.code} — ${m.name}`);
+
+const materialColumn = { key: "code", label: "Item Code", type: "material-select" };
+const nameColumn = { key: "name", label: "Material", type: "text", readOnly: true };
+const unitColumn = { key: "unit", label: "Unit", type: "text", readOnly: true };
+
+export const purchaseEntities = {
+  "purchase-request": {
+    label: "Purchase Request",
+    singular: "Request",
+    icon: "FileText",
+    description: "Create and manage internal requests for purchasing materials.",
+    statLabel: "Total Requests",
+    rows: purchaseRequests,
+    list: {
+      subtitle: "Create and manage internal requests for purchasing materials.",
+      searchPlaceholder: "Search request number, requester, material...",
+      searchKeys: ["id", "requestedBy"],
+      dateKey: "date",
+      filters: [
+        { key: "status", label: "Status", options: PR_STATUSES },
+        { key: "department", label: "Department", options: departments },
+        { key: "priority", label: "Priority", options: PRIORITIES },
+      ],
+      summary: [
+        { label: "Total Requests", tone: "primary", compute: (rows) => rows.length },
+        { label: "Pending Approval", tone: "warning", compute: (rows) => rows.filter((r) => r.status === "Pending Approval").length },
+        { label: "Approved", tone: "success", compute: (rows) => rows.filter((r) => r.status === "Approved").length },
+        { label: "Rejected", tone: "danger", compute: (rows) => rows.filter((r) => r.status === "Rejected").length },
+        { label: "Converted to PO", tone: "accent", compute: (rows) => rows.filter((r) => r.status === "Converted").length },
+      ],
+      columns: [
+        { key: "id", label: "Request No", mono: true },
+        { key: "date", label: "Request Date" },
+        { key: "requestedBy", label: "Requested By" },
+        { key: "department", label: "Department" },
+        { key: "requiredDate", label: "Required Date" },
+        { key: "items", label: "Items", align: "right", render: (row) => row.items.length },
+        { key: "priority", label: "Priority" },
+        { key: "status", label: "Status", badge: true },
+      ],
+      rowActions: [
+        { key: "view", label: "View", icon: "Eye" },
+        { key: "edit", label: "Edit", icon: "Pencil", hideWhen: (row) => row.status === "Converted" },
+        { key: "approve", label: "Approve", icon: "Check", tone: "success", showWhen: (row) => row.status === "Pending Approval", setStatus: "Approved" },
+        { key: "reject", label: "Reject", icon: "X", tone: "danger", showWhen: (row) => row.status === "Pending Approval", setStatus: "Rejected", confirm: "Reject this purchase request?" },
+        { key: "convert", label: "Convert to PO", icon: "ArrowRightCircle", showWhen: (row) => row.status === "Approved", convertsTo: "purchase-order" },
+        { key: "print", label: "Print", icon: "Printer", print: true },
+      ],
+    },
+    form: {
+      tabs: [
+        {
+          key: "basic",
+          label: "Basic Information",
+          fields: [
+            { key: "id", label: "Request Number", type: "text", required: true, autoLabel: "Auto-generated" },
+            { key: "date", label: "Request Date", type: "date", required: true },
+            { key: "requestedBy", label: "Requested By", type: "text", required: true },
+            { key: "department", label: "Department", type: "select", options: departments },
+            { key: "requiredDate", label: "Required Date", type: "date" },
+            { key: "priority", label: "Priority", type: "select", options: PRIORITIES },
+            { key: "purpose", label: "Purpose / Reason", type: "textarea", span: "full" },
+          ],
+        },
+        {
+          key: "items",
+          label: "Material Items",
+          fields: [
+            {
+              key: "items",
+              label: "Material Items",
+              type: "lineItems",
+              span: "full",
+              allowAddRemove: true,
+              columns: [
+                materialColumn,
+                nameColumn,
+                { key: "qty", label: "Required Qty", type: "number" },
+                unitColumn,
+                { key: "remarks", label: "Remarks", type: "text" },
+              ],
+            },
+          ],
+        },
+        {
+          key: "additional",
+          label: "Additional Information",
+          fields: [
+            { key: "attachment", label: "Attachment", type: "file" },
+            { key: "internalNotes", label: "Notes", type: "textarea", span: "full" },
+          ],
+        },
+        {
+          key: "approval",
+          label: "Approval",
+          fields: [
+            { key: "requestedBy", label: "Requested By", type: "text", readOnly: true },
+            { key: "approvedBy", label: "Approved By", type: "text" },
+            { key: "approvalDate", label: "Approval Date", type: "date" },
+            { key: "approvalRemarks", label: "Approval Remarks", type: "textarea", span: "full" },
+          ],
+        },
+      ],
+    },
+    formActions: [
+      { key: "cancel", label: "Cancel", kind: "ghost" },
+      { key: "saveDraft", label: "Save Draft", kind: "outline", status: "Draft" },
+      { key: "submit", label: "Submit for Approval", kind: "primary", status: "Pending Approval", validate: true },
+    ],
+  },
+
+  "purchase-order": {
+    label: "Purchase Order",
+    singular: "Purchase Order",
+    icon: "ShoppingCart",
+    description: "Manage supplier purchase orders and procurement commitments.",
+    statLabel: "Total POs",
+    rows: purchaseOrders,
+    list: {
+      subtitle: "Manage supplier purchase orders and procurement commitments.",
+      searchPlaceholder: "Search PO number, supplier...",
+      searchKeys: ["id", "supplier"],
+      dateKey: "date",
+      filters: [
+        { key: "supplier", label: "Supplier", options: suppliers },
+        { key: "status", label: "Status", options: PO_STATUSES },
+        { key: "warehouse", label: "Warehouse", options: warehouses },
+      ],
+      summary: [
+        { label: "Total POs", tone: "primary", compute: (rows) => rows.length },
+        { label: "Pending Approval", tone: "warning", compute: (rows) => rows.filter((r) => r.status === "Pending Approval").length },
+        { label: "Open Orders", tone: "accent", compute: (rows) => rows.filter((r) => ["Ordered", "Approved"].includes(r.status)).length },
+        { label: "Partially Received", tone: "warning", compute: (rows) => rows.filter((r) => r.status === "Partially Received").length },
+        { label: "Fully Received", tone: "success", compute: (rows) => rows.filter((r) => r.status === "Received").length },
+        { label: "Cancelled", tone: "danger", compute: (rows) => rows.filter((r) => r.status === "Cancelled").length },
+      ],
+      columns: [
+        { key: "id", label: "PO Number", mono: true, link: true },
+        { key: "supplier", label: "Supplier" },
+        { key: "date", label: "PO Date" },
+        { key: "expectedDate", label: "Expected Date" },
+        { key: "amount", label: "Total Amount", align: "right", money: true, render: (row) => poTotals(row.items).grandTotal },
+        { key: "status", label: "Status", badge: true },
+      ],
+      rowActions: [
+        { key: "view", label: "View", icon: "Eye" },
+        { key: "edit", label: "Edit", icon: "Pencil", hideWhen: (row) => ["Received", "Cancelled"].includes(row.status) },
+        { key: "print", label: "Print", icon: "Printer", print: true },
+        { key: "send", label: "Send to Supplier", icon: "Send", showWhen: (row) => row.status === "Approved", setStatus: "Ordered" },
+        { key: "receive", label: "Receive", icon: "PackageCheck", showWhen: (row) => ["Ordered", "Partially Received"].includes(row.status), convertsTo: "goods-receipt" },
+        { key: "cancel", label: "Cancel", icon: "Ban", tone: "danger", hideWhen: (row) => ["Received", "Cancelled"].includes(row.status), setStatus: "Cancelled", confirm: "Cancel this purchase order?" },
+      ],
+    },
+    form: {
+      tabs: [
+        {
+          key: "supplier",
+          label: "Supplier Information",
+          fields: [
+            { key: "supplier", label: "Supplier", type: "select", required: true, options: suppliers },
+            { key: "contact", label: "Contact Person", type: "text", readOnly: true },
+            { key: "phone", label: "Phone", type: "text", readOnly: true },
+            { key: "email", label: "Email", type: "text", readOnly: true },
+            { key: "billingAddress", label: "Billing Address", type: "textarea" },
+            { key: "shippingAddress", label: "Shipping Address", type: "textarea" },
+          ],
+        },
+        {
+          key: "order",
+          label: "Order Information",
+          fields: [
+            { key: "id", label: "PO Number", type: "text", required: true, autoLabel: "Auto-generated" },
+            { key: "date", label: "PO Date", type: "date", required: true },
+            { key: "expectedDate", label: "Expected Delivery Date", type: "date" },
+            { key: "paymentTerms", label: "Payment Terms", type: "select", options: ["Net 15", "Net 30", "Net 45", "Advance"] },
+            { key: "warehouse", label: "Warehouse", type: "select", options: warehouses },
+            { key: "refPR", label: "Reference Purchase Request", type: "text" },
+          ],
+        },
+        {
+          key: "items",
+          label: "Item Details",
+          fields: [
+            {
+              key: "items",
+              label: "Item Details",
+              type: "lineItems",
+              span: "full",
+              allowAddRemove: true,
+              totals: true,
+              columns: [
+                materialColumn,
+                nameColumn,
+                { key: "qty", label: "Qty", type: "number" },
+                unitColumn,
+                { key: "price", label: "Unit Price", type: "number" },
+                { key: "discount", label: "Discount %", type: "number" },
+                { key: "tax", label: "Tax %", type: "number" },
+                { key: "total", label: "Total", type: "computed-line-total" },
+              ],
+            },
+          ],
+        },
+        {
+          key: "terms",
+          label: "Terms & Conditions",
+          fields: [
+            { key: "deliveryTerms", label: "Delivery Terms", type: "select", options: ["Ex-Works", "FOB", "CIF"] },
+            { key: "warranty", label: "Warranty", type: "text" },
+            { key: "termsNotes", label: "Terms & Conditions", type: "textarea", span: "full" },
+          ],
+        },
+        {
+          key: "attachments",
+          label: "Attachments",
+          fields: [
+            { key: "quotation", label: "Quotation", type: "file" },
+            { key: "supplierDocument", label: "Supplier Document", type: "file" },
+          ],
+        },
+        {
+          key: "approval",
+          label: "Approval",
+          fields: [
+            { key: "preparedBy", label: "Prepared By", type: "text" },
+            { key: "approvedBy", label: "Approved By", type: "text" },
+            { key: "approvalDate", label: "Approval Date", type: "date" },
+          ],
+        },
+      ],
+    },
+    formActions: [
+      { key: "saveDraft", label: "Save Draft", kind: "outline", status: "Draft" },
+      { key: "submit", label: "Submit for Approval", kind: "outline", status: "Pending Approval", validate: true },
+      { key: "approve", label: "Approve", kind: "outline", status: "Approved", validate: true },
+      { key: "print", label: "Print PO", kind: "outline", print: true },
+      { key: "send", label: "Send to Supplier", kind: "primary", status: "Ordered", validate: true },
+    ],
+  },
+
+  "goods-receipt": {
+    label: "Goods Receipt",
+    singular: "Goods Receipt",
+    icon: "PackageCheck",
+    description: "Record materials physically received from suppliers and update inventory.",
+    statLabel: "Total Receipts",
+    rows: goodsReceipts,
+    list: {
+      subtitle: "Record materials physically received from suppliers and update inventory.",
+      searchPlaceholder: "Search GRN number, PO number, supplier...",
+      searchKeys: ["id", "refPO", "supplier"],
+      dateKey: "date",
+      filters: [
+        { key: "supplier", label: "Supplier", options: suppliers },
+        { key: "warehouse", label: "Warehouse", options: warehouses },
+        { key: "status", label: "Status", options: GRN_STATUSES },
+      ],
+      summary: [
+        { label: "Pending Receipts", tone: "warning", compute: (rows) => rows.filter((r) => r.status === "Pending Inspection").length },
+        { label: "Partially Accepted", tone: "warning", compute: (rows) => rows.filter((r) => r.items.some((i) => i.rejectedQty > 0)).length },
+        { label: "Completed", tone: "success", compute: (rows) => rows.filter((r) => r.status === "Completed").length },
+        {
+          label: "Rejected Qty (units)",
+          tone: "danger",
+          compute: (rows) => rows.reduce((sum, r) => sum + r.items.reduce((s, i) => s + (Number(i.rejectedQty) || 0), 0), 0),
+        },
+        {
+          label: "Total Received Value",
+          tone: "primary",
+          compute: (rows) =>
+            new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(
+              rows.reduce((sum, r) => sum + r.items.reduce((s, i) => s + (Number(i.acceptedQty) || 0) * (materialByCode(i.code)?.price || 0), 0), 0)
+            ),
+        },
+      ],
+      columns: [
+        { key: "id", label: "GRN Number", mono: true, link: true },
+        { key: "refPO", label: "PO Number", mono: true },
+        { key: "supplier", label: "Supplier" },
+        { key: "date", label: "Receipt Date" },
+        { key: "warehouse", label: "Warehouse" },
+        { key: "items", label: "Items", align: "right", render: (row) => row.items.length },
+        { key: "status", label: "Status", badge: true },
+      ],
+      rowActions: [
+        { key: "view", label: "View", icon: "Eye" },
+        { key: "edit", label: "Edit", icon: "Pencil", hideWhen: (row) => row.status === "Completed" },
+        { key: "print", label: "Print", icon: "Printer", print: true },
+      ],
+    },
+    form: {
+      tabs: [
+        {
+          key: "receipt",
+          label: "Receipt Information",
+          fields: [
+            { key: "id", label: "GRN Number", type: "text", required: true, autoLabel: "Auto-generated" },
+            { key: "date", label: "Receipt Date", type: "date", required: true },
+            { key: "supplier", label: "Supplier", type: "select", required: true, options: suppliers },
+            { key: "refPO", label: "Purchase Order", type: "select", required: true, options: purchaseOrders.map((po) => po.id) },
+            { key: "warehouse", label: "Warehouse", type: "select", required: true, options: warehouses },
+            { key: "receivedBy", label: "Received By", type: "text" },
+            { key: "vehicleNumber", label: "Vehicle Number", type: "text" },
+            { key: "challanNumber", label: "Delivery Challan Number", type: "text" },
+            { key: "invoiceNumber", label: "Supplier Invoice Number", type: "text" },
+          ],
+        },
+        {
+          key: "items",
+          label: "Received Items",
+          fields: [
+            {
+              key: "items",
+              label: "Received Items",
+              type: "lineItems",
+              span: "full",
+              allowAddRemove: false,
+              columns: [
+                { ...materialColumn, readOnly: true },
+                nameColumn,
+                { key: "orderedQty", label: "Ordered Qty", type: "number", readOnly: true },
+                { key: "receivedQty", label: "Received Qty", type: "number" },
+                { key: "acceptedQty", label: "Accepted Qty", type: "number" },
+                { key: "rejectedQty", label: "Rejected Qty", type: "number" },
+                unitColumn,
+                { key: "batch", label: "Batch No", type: "text" },
+                { key: "expiry", label: "Expiry Date", type: "date" },
+              ],
+            },
+          ],
+        },
+        {
+          key: "quality",
+          label: "Quality Inspection",
+          fields: [
+            { key: "inspectionRequired", label: "Inspection Required", type: "toggle" },
+            { key: "qualityStatus", label: "Quality Status", type: "select", options: ["Pending", "Passed", "Failed", "Partially Passed"] },
+            { key: "inspectedBy", label: "Inspector", type: "text" },
+            { key: "inspectionDate", label: "Inspection Date", type: "date" },
+            { key: "inspectionRemarks", label: "Inspection Remarks", type: "textarea", span: "full" },
+          ],
+        },
+        {
+          key: "documents",
+          label: "Documents",
+          fields: [
+            { key: "challanDoc", label: "Delivery Challan", type: "file" },
+            { key: "invoiceDoc", label: "Supplier Invoice", type: "file" },
+            { key: "inspectionDoc", label: "Inspection Report", type: "file" },
+          ],
+        },
+      ],
+    },
+    formActions: [
+      { key: "saveDraft", label: "Save Draft", kind: "outline", status: "Draft" },
+      { key: "submit", label: "Submit for Inspection", kind: "outline", status: "Pending Inspection" },
+      { key: "reject", label: "Reject", kind: "outline", tone: "danger", status: "Rejected", confirm: "Reject this entire receipt?" },
+      { key: "accept", label: "Accept & Update Stock", kind: "primary", status: "Completed", validate: true, updatesStock: "increase" },
+      { key: "print", label: "Print GRN", kind: "outline", print: true },
+    ],
+  },
+
+  "purchase-return": {
+    label: "Purchase Return",
+    singular: "Return",
+    icon: "Undo2",
+    description: "Return defective, excess or incorrect materials back to the supplier.",
+    statLabel: "Total Returns",
+    rows: purchaseReturns,
+    list: {
+      subtitle: "Return defective, excess or incorrect materials back to the supplier.",
+      searchPlaceholder: "Search return number, supplier...",
+      searchKeys: ["id", "supplier"],
+      dateKey: "date",
+      filters: [
+        { key: "supplier", label: "Supplier", options: suppliers },
+        { key: "status", label: "Status", options: RETURN_STATUSES },
+        { key: "reason", label: "Reason", options: RETURN_REASONS },
+      ],
+      summary: [
+        { label: "Pending Returns", tone: "warning", compute: (rows) => rows.filter((r) => r.status === "Pending Approval").length },
+        { label: "Approved Returns", tone: "accent", compute: (rows) => rows.filter((r) => r.status === "Approved").length },
+        { label: "Completed Returns", tone: "success", compute: (rows) => rows.filter((r) => r.status === "Returned").length },
+        {
+          label: "Total Return Value",
+          tone: "danger",
+          compute: (rows) =>
+            new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(
+              rows.reduce((sum, r) => sum + r.items.reduce((s, i) => s + (Number(i.returnQty) || 0) * (Number(i.price) || 0), 0), 0)
+            ),
+        },
+      ],
+      columns: [
+        { key: "id", label: "Return No", mono: true, link: true },
+        { key: "supplier", label: "Supplier" },
+        { key: "refGRN", label: "GRN / PO No", mono: true, render: (row) => row.refGRN || row.refPO },
+        { key: "date", label: "Return Date" },
+        { key: "reason", label: "Reason" },
+        { key: "status", label: "Status", badge: true },
+      ],
+      rowActions: [
+        { key: "view", label: "View", icon: "Eye" },
+        { key: "edit", label: "Edit", icon: "Pencil", hideWhen: (row) => row.status === "Returned" },
+        { key: "print", label: "Print", icon: "Printer", print: true },
+      ],
+    },
+    form: {
+      tabs: [
+        {
+          key: "return",
+          label: "Return Information",
+          fields: [
+            { key: "id", label: "Return Number", type: "text", required: true, autoLabel: "Auto-generated" },
+            { key: "date", label: "Return Date", type: "date", required: true },
+            { key: "supplier", label: "Supplier", type: "select", required: true, options: suppliers },
+            { key: "refGRN", label: "Reference GRN", type: "select", required: true, options: goodsReceipts.map((g) => g.id) },
+            { key: "refPO", label: "Reference PO", type: "text", readOnly: true },
+            { key: "warehouse", label: "Warehouse", type: "select", options: warehouses },
+            { key: "reason", label: "Return Reason", type: "select", options: RETURN_REASONS },
+          ],
+        },
+        {
+          key: "items",
+          label: "Return Items",
+          fields: [
+            {
+              key: "items",
+              label: "Return Items",
+              type: "lineItems",
+              span: "full",
+              allowAddRemove: false,
+              totals: "return",
+              columns: [
+                { ...materialColumn, readOnly: true },
+                nameColumn,
+                { key: "receivedQty", label: "Received Qty", type: "number", readOnly: true },
+                { key: "availableQty", label: "Available Qty", type: "number", readOnly: true },
+                { key: "returnQty", label: "Return Qty", type: "number", maxKey: "availableQty" },
+                unitColumn,
+                { key: "batch", label: "Batch No", type: "text", readOnly: true },
+                { key: "reason", label: "Reason", type: "text" },
+              ],
+            },
+          ],
+        },
+        {
+          key: "details",
+          label: "Return Details",
+          fields: [
+            { key: "returnRemarks", label: "Return Remarks", type: "textarea", span: "full" },
+            { key: "creditNoteNumber", label: "Supplier Credit Note Number", type: "text" },
+            { key: "transportDetails", label: "Transport Details", type: "text" },
+            { key: "attachment", label: "Attachment", type: "file" },
+          ],
+        },
+        {
+          key: "approval",
+          label: "Approval",
+          fields: [
+            { key: "requestedBy", label: "Requested By", type: "text" },
+            { key: "approvedBy", label: "Approved By", type: "text" },
+            { key: "approvalDate", label: "Approval Date", type: "date" },
+          ],
+        },
+      ],
+    },
+    formActions: [
+      { key: "saveDraft", label: "Save Draft", kind: "outline", status: "Draft" },
+      { key: "submit", label: "Submit for Approval", kind: "outline", status: "Pending Approval", validate: true },
+      { key: "approve", label: "Approve Return", kind: "outline", status: "Approved", validate: true },
+      { key: "complete", label: "Complete Return", kind: "primary", status: "Returned", validate: true, updatesStock: "decrease" },
+      { key: "print", label: "Print Return", kind: "outline", print: true },
+    ],
+  },
+};
+
+export const purchaseEntityOrder = ["purchase-request", "purchase-order", "goods-receipt", "purchase-return"];

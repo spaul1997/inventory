@@ -1,0 +1,150 @@
+export const ALLOCATION_STATUSES = ["Draft", "Pending Approval", "On Hold", "Reserved", "Rejected", "Partially Dispatched", "Fully Dispatched", "Cancelled", "Expired"];
+
+export const allocationActions = {
+  Draft: [
+    { key: "submit", label: "Submit for Approval", to: "Pending Approval", kind: "outline" },
+    { key: "cancel", label: "Cancel", to: "Cancelled", kind: "outline", tone: "danger", confirm: "Cancel this allocation?" },
+  ],
+  "Pending Approval": [
+    { key: "approve", label: "Approve & Reserve", to: "Reserved", kind: "primary", salesEffect: "reserveStock" },
+    { key: "hold", label: "Hold (Insufficient Stock)", to: "On Hold", kind: "outline", tone: "danger" },
+    { key: "reject", label: "Reject", to: "Rejected", kind: "outline", tone: "danger" },
+    { key: "cancel", label: "Cancel", to: "Cancelled", kind: "outline", tone: "danger", confirm: "Cancel this allocation?" },
+  ],
+  "On Hold": [{ key: "resume", label: "Resume", to: "Pending Approval", kind: "primary" }],
+  Reserved: [{ key: "cancel", label: "Cancel & Release Stock", to: "Cancelled", kind: "outline", tone: "danger", confirm: "Cancel this allocation and release reserved stock?", salesEffect: "releaseStock" }],
+  "Partially Dispatched": [],
+  "Fully Dispatched": [],
+  Rejected: [],
+  Cancelled: [],
+  Expired: [],
+};
+
+export const allocationRows = [
+  {
+    id: "ALC-2026-0001",
+    date: "2026-07-12",
+    salesOrderId: "SO-2026-0001",
+    customerId: "CUST-1001",
+    customerName: "Bajaj Auto Components Pvt Ltd",
+    warehouse: "Finished Goods Warehouse",
+    branch: "Pune",
+    allocationType: "Standard",
+    priority: "High",
+    expiryDate: "2026-07-19",
+    expectedDispatchDate: "2026-07-14",
+    assignedEmployee: "Priya Nair",
+    approvedBy: "Anil Deshmukh",
+    internalRemarks: "Full allocation against SO-2026-0001.",
+    items: [
+      { productCode: "ITM-1001", productName: "Steel Hex Bolt M8x40", uom: "PCS", orderedQty: 500, allocatedQty: 500, sourceWarehouse: "Main Manufacturing Plant", location: "Rack 1", batchNo: "", remarks: "" },
+      { productCode: "ITM-1002", productName: "Industrial Ball Bearing 6204", uom: "PCS", orderedQty: 20, allocatedQty: 20, sourceWarehouse: "Main Manufacturing Plant", location: "Rack 3", batchNo: "", remarks: "" },
+    ],
+    status: "Fully Dispatched",
+    activity: [
+      { event: "Draft", date: "2026-07-12", by: "Priya Nair" },
+      { event: "Pending Approval", date: "2026-07-12", by: "Priya Nair" },
+      { event: "Reserved", date: "2026-07-12", by: "Anil Deshmukh" },
+      { event: "Fully Dispatched", date: "2026-07-14", by: "Karan Mehta" },
+    ],
+    createdBy: "Priya Nair",
+    createdAt: "2026-07-12T09:00",
+    updatedBy: "Karan Mehta",
+    updatedAt: "2026-07-14T16:30",
+  },
+];
+
+export const allocationEntity = {
+  label: "Product Allocation",
+  singular: "Allocation",
+  icon: "PackageCheck",
+  description: "Reserve inventory against confirmed sales orders before dispatch.",
+  statLabel: "Total Allocations",
+  statusList: ALLOCATION_STATUSES,
+  statusActions: allocationActions,
+  rows: allocationRows,
+  renderDocumentChain: (values) => [
+    { id: values.salesOrderId, label: "Sales Order", to: values.salesOrderId ? `/sales/sales-order/${values.salesOrderId}/view` : null },
+    { id: values.id, label: "Allocation" },
+  ],
+  list: {
+    subtitle: "Stock reservation against confirmed sales orders, ready for pick and dispatch.",
+    searchPlaceholder: "Search allocation number, sales order, customer...",
+    searchKeys: ["id", "salesOrderId", "customerName"],
+    dateKey: "date",
+    filters: [
+      { key: "warehouse", label: "Warehouse", options: ["Finished Goods Warehouse", "Main Manufacturing Plant", "Regional Distribution Hub"] },
+      { key: "priority", label: "Priority", options: ["Low", "Normal", "High", "Urgent"] },
+      { key: "status", label: "Status", options: ALLOCATION_STATUSES },
+    ],
+    summary: [
+      { label: "Total Allocations", tone: "primary", compute: (rows) => rows.length },
+      { label: "Pending Approval", tone: "warning", compute: (rows) => rows.filter((r) => r.status === "Pending Approval").length },
+      { label: "Reserved", tone: "accent", compute: (rows) => rows.filter((r) => r.status === "Reserved").length },
+      { label: "Fully Dispatched", tone: "success", compute: (rows) => rows.filter((r) => r.status === "Fully Dispatched").length },
+    ],
+    columns: [
+      { key: "id", label: "Allocation No", mono: true, link: true },
+      { key: "date", label: "Date" },
+      { key: "salesOrderId", label: "Sales Order", mono: true },
+      { key: "customerName", label: "Customer" },
+      { key: "warehouse", label: "Warehouse" },
+      { key: "allocatedQty", label: "Allocated Qty", align: "right", render: (row) => row.items.reduce((s, i) => s + (Number(i.allocatedQty) || 0), 0) },
+      { key: "status", label: "Status", badge: true },
+    ],
+    rowActions: [
+      { key: "view", label: "View", icon: "Eye" },
+      { key: "edit", label: "Edit", icon: "Pencil", showWhen: (row) => row.status === "Draft" },
+      { key: "duplicate", label: "Duplicate", icon: "Copy" },
+      { key: "dispatch", label: "Create Dispatch", icon: "ArrowRightCircle", showWhen: (row) => ["Reserved", "Partially Dispatched"].includes(row.status), convertsTo: "delivery-dispatch" },
+      { key: "print", label: "Print Pick List", icon: "Printer", print: true },
+      { key: "delete", label: "Delete", icon: "Trash2", tone: "danger", showWhen: (row) => row.status === "Draft", remove: true, confirm: "Delete this draft allocation?" },
+    ],
+  },
+  form: {
+    tabs: [
+      {
+        key: "overview",
+        label: "Overview",
+        fields: [
+          { key: "id", label: "Allocation Number", type: "text", required: true, autoLabel: "Auto-generated" },
+          { key: "date", label: "Allocation Date", type: "date", required: true },
+          { key: "salesOrderId", label: "Sales Order", type: "sales-order-select", required: true },
+          { key: "customerName", label: "Customer", type: "text", readOnly: true },
+          { key: "warehouse", label: "Warehouse", type: "select", options: ["Finished Goods Warehouse", "Main Manufacturing Plant", "Regional Distribution Hub"] },
+          { key: "branch", label: "Branch", type: "text" },
+          { key: "allocationType", label: "Allocation Type", type: "select", options: ["Standard", "Priority", "Backorder"] },
+          { key: "priority", label: "Priority", type: "select", options: ["Low", "Normal", "High", "Urgent"] },
+          { key: "expiryDate", label: "Allocation Expiry Date", type: "date" },
+          { key: "expectedDispatchDate", label: "Expected Dispatch Date", type: "date" },
+          { key: "assignedEmployee", label: "Assigned Warehouse Employee", type: "text" },
+          { key: "internalRemarks", label: "Internal Remarks", type: "textarea", span: "full" },
+        ],
+      },
+      {
+        key: "lines",
+        label: "Allocation Lines",
+        fields: [
+          {
+            key: "items",
+            label: "Allocation Lines",
+            type: "lineItems",
+            span: "full",
+            columns: [
+              { key: "productCode", label: "Product", type: "text", readOnly: true },
+              { key: "productName", label: "Name", type: "text", readOnly: true },
+              { key: "orderedQty", label: "Ordered Qty", type: "number", readOnly: true },
+              { key: "availableToAllocate", label: "Available to Allocate", type: "available-to-allocate" },
+              { key: "allocatedQty", label: "Allocation Qty", type: "number" },
+              { key: "uom", label: "UOM", type: "text", readOnly: true },
+              { key: "sourceWarehouse", label: "Source Warehouse", type: "select", options: ["Finished Goods Warehouse", "Main Manufacturing Plant", "Regional Distribution Hub"] },
+              { key: "location", label: "Location / Rack", type: "text" },
+              { key: "batchNo", label: "Batch No", type: "text" },
+              { key: "remarks", label: "Remarks", type: "text" },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+};

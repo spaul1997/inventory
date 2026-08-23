@@ -1,0 +1,711 @@
+// Config-driven data for the Master Management module: list screens, tabbed
+// entry forms, and realistic sample data for all 7 master entities. One
+// generic MasterList + MasterForm renderer consumes this for every entity so
+// the seven screens share a single, consistent design system.
+
+const productType = ["Finished Goods", "Semi-Finished Goods", "Trading Item"];
+const statusOptions = ["Active", "Inactive", "Draft"];
+
+export const masterEntities = {
+  "product-item": {
+    label: "Product / Item",
+    singular: "Product",
+    icon: "Package",
+    description: "Manage finished goods and saleable products",
+    statLabel: "Total Items",
+    list: {
+      subtitle: "Manage products and finished goods.",
+      searchPlaceholder: "Search by item code, product name...",
+      searchKeys: ["code", "name"],
+      // The entry form collects far more detail than the list shows; this projects
+      // the relevant form fields onto the flat row shape the table/summary expect.
+      deriveRow: (values) => ({
+        unit: values.baseUnit,
+        stock: Number(values.openingQty) || 0,
+        price: Number(values.sellingPrice) || 0,
+        warehouse: values.defaultWarehouse,
+      }),
+      filters: [
+        { key: "category", label: "Category", options: ["Fasteners", "Bearings", "Hydraulics", "Electricals", "Sub-Assembly", "Seals"] },
+        { key: "productType", label: "Product Type", options: productType },
+        { key: "status", label: "Status", options: ["Active", "Inactive", "Low Stock"] },
+        { key: "warehouse", label: "Warehouse", options: ["Main Manufacturing Plant", "Finished Goods Warehouse", "Regional Distribution Hub"] },
+      ],
+      summary: [
+        { label: "Total Products", tone: "primary", compute: (rows) => rows.length },
+        { label: "Active Products", tone: "success", compute: (rows) => rows.filter((r) => r.status === "Active").length },
+        { label: "Inactive Products", tone: "muted", compute: (rows) => rows.filter((r) => r.status === "Inactive").length },
+        { label: "Low Stock Products", tone: "warning", compute: (rows) => rows.filter((r) => r.status === "Low Stock").length },
+      ],
+      columns: [
+        { key: "code", label: "Item Code", mono: true },
+        { key: "name", label: "Product Name" },
+        { key: "category", label: "Category" },
+        { key: "unit", label: "Unit" },
+        { key: "stock", label: "Stock", align: "right" },
+        { key: "price", label: "Price", align: "right", money: true },
+        { key: "status", label: "Status", badge: true },
+      ],
+      rows: [
+        { code: "ITM-1001", name: "Steel Hex Bolt M8x40", category: "Fasteners", productType: "Trading Item", unit: "PCS", stock: 12500, price: 4.5, warehouse: "Main Manufacturing Plant", status: "Active", hsnCode: "7318", gst: 18 },
+        { code: "ITM-1002", name: "Industrial Ball Bearing 6204", category: "Bearings", productType: "Trading Item", unit: "PCS", stock: 340, price: 185, warehouse: "Main Manufacturing Plant", status: "Active", hsnCode: "8482", gst: 18 },
+        { code: "ITM-1003", name: "Hydraulic Cylinder 50mm", category: "Hydraulics", productType: "Finished Goods", unit: "PCS", stock: 28, price: 4200, warehouse: "Finished Goods Warehouse", status: "Low Stock", hsnCode: "8412", gst: 18 },
+        { code: "ITM-1004", name: "PVC Conduit Pipe 25mm", category: "Electricals", productType: "Trading Item", unit: "MTR", stock: 5600, price: 22, warehouse: "Regional Distribution Hub", status: "Active", hsnCode: "3917", gst: 18 },
+        { code: "ITM-1005", name: "Aluminium Sheet 4x8 ft", category: "Fasteners", productType: "Semi-Finished Goods", unit: "PCS", stock: 0, price: 1850, warehouse: "Main Manufacturing Plant", status: "Inactive", hsnCode: "7606", gst: 18 },
+        { code: "ITM-1006", name: "Cooling Fan Assembly", category: "Sub-Assembly", productType: "Finished Goods", unit: "PCS", stock: 85, price: 950, warehouse: "Finished Goods Warehouse", status: "Active", hsnCode: "8414", gst: 18 },
+        { code: "ITM-1007", name: "Rubber Gasket Ring 40mm", category: "Seals", productType: "Trading Item", unit: "PCS", stock: 15, price: 12, warehouse: "Main Manufacturing Plant", status: "Low Stock", hsnCode: "4016", gst: 12 },
+        { code: "ITM-1008", name: "Control Panel Enclosure", category: "Electricals", productType: "Finished Goods", unit: "PCS", stock: 62, price: 3200, warehouse: "Finished Goods Warehouse", status: "Active", hsnCode: "8537", gst: 18 },
+      ],
+    },
+    form: {
+      tabs: [
+        {
+          key: "basic",
+          label: "Basic Information",
+          fields: [
+            { key: "code", label: "Item Code", type: "text", required: true, placeholder: "ITM-1009" },
+            { key: "name", label: "Product Name", type: "text", required: true, placeholder: "e.g. Hydraulic Cylinder 63mm" },
+            { key: "shortName", label: "Short Name", type: "text" },
+            { key: "category", label: "Category", type: "select", required: true, options: ["Fasteners", "Bearings", "Hydraulics", "Electricals", "Sub-Assembly", "Seals"] },
+            { key: "subCategory", label: "Sub Category", type: "text" },
+            { key: "productType", label: "Product Type", type: "select", required: true, options: productType },
+            { key: "brand", label: "Brand", type: "text" },
+            { key: "description", label: "Description", type: "textarea", span: "full" },
+          ],
+        },
+        {
+          key: "specification",
+          label: "Specification",
+          fields: [
+            { key: "modelNumber", label: "Model Number", type: "text" },
+            { key: "productSize", label: "Product Size", type: "text" },
+            { key: "color", label: "Color", type: "text" },
+            { key: "material", label: "Material", type: "text" },
+            { key: "grade", label: "Grade", type: "text" },
+            { key: "weight", label: "Weight (kg)", type: "number" },
+            { key: "length", label: "Length (mm)", type: "number" },
+            { key: "width", label: "Width (mm)", type: "number" },
+            { key: "thickness", label: "Thickness (mm)", type: "number" },
+            { key: "specification", label: "Specification", type: "textarea", span: "full" },
+            { key: "hsnCode", label: "HSN / Product Code", type: "text" },
+            { key: "barcode", label: "Barcode", type: "text" },
+            { key: "serialTracking", label: "Serial Number Tracking", type: "toggle" },
+            { key: "batchTracking", label: "Batch Tracking", type: "toggle" },
+            { key: "expiryTracking", label: "Expiry Tracking", type: "toggle" },
+          ],
+        },
+        {
+          key: "inventory",
+          label: "Inventory",
+          fields: [
+            { key: "baseUnit", label: "Base Unit", type: "select", required: true, options: ["PCS", "KG", "MTR", "LTR", "BOX"] },
+            { key: "purchaseUnit", label: "Purchase Unit", type: "select", options: ["PCS", "KG", "MTR", "LTR", "BOX"] },
+            { key: "salesUnit", label: "Sales Unit", type: "select", options: ["PCS", "KG", "MTR", "LTR", "BOX"] },
+            { key: "conversionFactor", label: "Conversion Factor", type: "number" },
+            { key: "minStock", label: "Minimum Stock Level", type: "number" },
+            { key: "maxStock", label: "Maximum Stock Level", type: "number" },
+            { key: "reorderLevel", label: "Reorder Level", type: "number" },
+            { key: "safetyStock", label: "Safety Stock", type: "number" },
+            { key: "openingQty", label: "Opening Quantity", type: "number" },
+            { key: "openingValue", label: "Opening Stock Value", type: "number" },
+          ],
+        },
+        {
+          key: "pricing",
+          label: "Pricing",
+          fields: [
+            { key: "purchasePrice", label: "Purchase Price", type: "number" },
+            { key: "standardCost", label: "Standard Cost", type: "number" },
+            { key: "sellingPrice", label: "Selling Price", type: "number" },
+            { key: "wholesalePrice", label: "Wholesale Price", type: "number" },
+            { key: "gst", label: "Tax / GST (%)", type: "number" },
+            { key: "discount", label: "Discount %", type: "number" },
+            {
+              key: "grossMargin",
+              label: "Gross Margin",
+              type: "computed",
+              span: "full",
+              compute: (v) => {
+                const sell = Number(v.sellingPrice) || 0;
+                const cost = Number(v.standardCost) || 0;
+                const margin = sell - cost;
+                const pct = sell ? ((margin / sell) * 100).toFixed(1) : "0.0";
+                return `Selling Price ₹${sell.toFixed(2)}  −  Standard Cost ₹${cost.toFixed(2)}  =  Gross Margin ₹${margin.toFixed(2)} (${pct}%)`;
+              },
+            },
+          ],
+        },
+        {
+          key: "manufacturing",
+          label: "Manufacturing",
+          fields: [
+            { key: "manufactured", label: "Manufactured?", type: "toggle" },
+            { key: "defaultBom", label: "Default BOM", type: "text", placeholder: "e.g. BOM-CYL-050" },
+            { key: "leadTime", label: "Production Lead Time (days)", type: "number" },
+            { key: "productionCost", label: "Standard Production Cost", type: "number" },
+            { key: "bomRequired", label: "BOM Required", type: "checkbox" },
+            { key: "qualityInspection", label: "Quality Inspection Required", type: "checkbox" },
+          ],
+        },
+        {
+          key: "storage",
+          label: "Storage",
+          fields: [
+            { key: "defaultWarehouse", label: "Default Warehouse", type: "select", options: ["Main Manufacturing Plant", "Raw Material Store", "Finished Goods Warehouse", "Regional Distribution Hub"] },
+            { key: "defaultLocation", label: "Default Stock Location", type: "text", placeholder: "e.g. Rack 1 Shelf 2" },
+            { key: "storageType", label: "Storage Type", type: "select", options: ["Rack", "Shelf", "Bin", "Floor", "Zone"] },
+          ],
+        },
+        {
+          key: "additional",
+          label: "Additional Information",
+          fields: [
+            { key: "internalNotes", label: "Internal Notes", type: "textarea", span: "full" },
+            { key: "remarks", label: "Remarks", type: "textarea", span: "full" },
+            { key: "attachment", label: "Attachment Upload", type: "file" },
+            { key: "status", label: "Status", type: "select", options: statusOptions },
+          ],
+        },
+      ],
+    },
+  },
+
+  "raw-material": {
+    label: "Raw Material",
+    singular: "Material",
+    icon: "Boxes",
+    description: "Manage manufacturing raw materials",
+    statLabel: "Total Materials",
+    list: {
+      subtitle: "Manage raw materials used in production.",
+      searchPlaceholder: "Search by material code, material name...",
+      searchKeys: ["code", "name"],
+      deriveRow: (values) => ({
+        unit: values.baseUnit,
+        stock: Number(values.openingQty) || 0,
+        price: Number(values.lastPurchasePrice) || 0,
+      }),
+      filters: [
+        { key: "category", label: "Category", options: ["Metals", "Polymers", "Chemicals"] },
+        { key: "status", label: "Status", options: ["Active", "Inactive", "Low Stock"] },
+      ],
+      summary: [
+        { label: "Total Materials", tone: "primary", compute: (rows) => rows.length },
+        { label: "Active Materials", tone: "success", compute: (rows) => rows.filter((r) => r.status === "Active").length },
+        { label: "Inactive Materials", tone: "muted", compute: (rows) => rows.filter((r) => r.status === "Inactive").length },
+        { label: "Low Stock Materials", tone: "warning", compute: (rows) => rows.filter((r) => r.status === "Low Stock").length },
+      ],
+      columns: [
+        { key: "code", label: "Material Code", mono: true },
+        { key: "name", label: "Material Name" },
+        { key: "category", label: "Category" },
+        { key: "unit", label: "Unit" },
+        { key: "stock", label: "Stock", align: "right" },
+        { key: "price", label: "Price", align: "right", money: true },
+        { key: "status", label: "Status", badge: true },
+      ],
+      rows: [
+        { code: "RM-2001", name: "Mild Steel Rod 12mm", category: "Metals", unit: "KG", stock: 8400, price: 68, status: "Active" },
+        { code: "RM-2002", name: "ABS Plastic Granules", category: "Polymers", unit: "KG", stock: 1200, price: 145, status: "Active" },
+        { code: "RM-2003", name: "Copper Wire 2.5mm", category: "Metals", unit: "MTR", stock: 3600, price: 95, status: "Active" },
+        { code: "RM-2004", name: "Industrial Adhesive", category: "Chemicals", unit: "LTR", stock: 40, price: 620, status: "Low Stock" },
+        { code: "RM-2005", name: "Stainless Steel Sheet 2mm", category: "Metals", unit: "KG", stock: 950, price: 210, status: "Active" },
+        { code: "RM-2006", name: "Rubber Compound", category: "Polymers", unit: "KG", stock: 0, price: 180, status: "Inactive" },
+      ],
+    },
+    form: {
+      tabs: [
+        {
+          key: "basic",
+          label: "Basic Information",
+          fields: [
+            { key: "code", label: "Material Code", type: "text", required: true, placeholder: "RM-2007" },
+            { key: "name", label: "Material Name", type: "text", required: true },
+            { key: "category", label: "Category", type: "select", required: true, options: ["Metals", "Polymers", "Chemicals"] },
+            { key: "subCategory", label: "Sub Category", type: "text" },
+            { key: "description", label: "Description", type: "textarea", span: "full" },
+          ],
+        },
+        {
+          key: "specification",
+          label: "Specification",
+          fields: [
+            { key: "grade", label: "Grade", type: "text" },
+            { key: "color", label: "Color", type: "text" },
+            { key: "weight", label: "Weight (kg)", type: "number" },
+            { key: "dimensions", label: "Dimensions", type: "text" },
+            { key: "specification", label: "Specification", type: "textarea", span: "full" },
+            { key: "batchTracking", label: "Batch Tracking", type: "toggle" },
+            { key: "expiryTracking", label: "Expiry Tracking", type: "toggle" },
+          ],
+        },
+        {
+          key: "inventory",
+          label: "Inventory",
+          fields: [
+            { key: "baseUnit", label: "Base Unit", type: "select", required: true, options: ["KG", "MTR", "LTR", "PCS"] },
+            { key: "minStock", label: "Minimum Stock Level", type: "number" },
+            { key: "maxStock", label: "Maximum Stock Level", type: "number" },
+            { key: "reorderLevel", label: "Reorder Level", type: "number" },
+            { key: "openingQty", label: "Opening Quantity", type: "number" },
+            { key: "openingValue", label: "Opening Stock Value", type: "number" },
+          ],
+        },
+        {
+          key: "purchasing",
+          label: "Purchasing",
+          fields: [
+            { key: "preferredSupplier", label: "Preferred Supplier", type: "text" },
+            { key: "leadTime", label: "Purchase Lead Time (days)", type: "number" },
+            { key: "moq", label: "Minimum Order Quantity", type: "number" },
+            { key: "lastPurchasePrice", label: "Last Purchase Price", type: "number" },
+          ],
+        },
+        {
+          key: "quality",
+          label: "Quality",
+          fields: [
+            { key: "qualityGrade", label: "Quality Grade", type: "text" },
+            { key: "inspectionRequired", label: "Inspection Required", type: "checkbox" },
+            { key: "certification", label: "Certification", type: "text", placeholder: "e.g. ISO 9001" },
+          ],
+        },
+        {
+          key: "storage",
+          label: "Storage",
+          fields: [
+            { key: "defaultWarehouse", label: "Default Warehouse", type: "select", options: ["Main Manufacturing Plant", "Raw Material Store"] },
+            { key: "defaultLocation", label: "Default Stock Location", type: "text" },
+            { key: "storageType", label: "Storage Type", type: "select", options: ["Rack", "Shelf", "Bin", "Floor", "Zone"] },
+          ],
+        },
+        {
+          key: "additional",
+          label: "Additional Information",
+          fields: [
+            { key: "internalNotes", label: "Internal Notes", type: "textarea", span: "full" },
+            { key: "attachment", label: "Attachment Upload", type: "file" },
+            { key: "status", label: "Status", type: "select", options: statusOptions },
+          ],
+        },
+      ],
+    },
+  },
+
+  category: {
+    label: "Category",
+    singular: "Category",
+    icon: "Tags",
+    description: "Organize products and materials",
+    statLabel: "Total Categories",
+    list: {
+      subtitle: "Organize products and materials into categories.",
+      searchPlaceholder: "Search by category code, category name...",
+      searchKeys: ["code", "name"],
+      deriveRow: () => ({ itemCount: 0 }),
+      filters: [
+        { key: "type", label: "Category Type", options: ["Product", "Material"] },
+        { key: "status", label: "Status", options: ["Active", "Inactive"] },
+      ],
+      summary: [
+        { label: "Total Categories", tone: "primary", compute: (rows) => rows.length },
+        { label: "Active", tone: "success", compute: (rows) => rows.filter((r) => r.status === "Active").length },
+        { label: "Inactive", tone: "muted", compute: (rows) => rows.filter((r) => r.status === "Inactive").length },
+        { label: "Parent Categories", tone: "accent", compute: (rows) => rows.filter((r) => !r.parent).length },
+      ],
+      columns: [
+        { key: "code", label: "Category Code", mono: true },
+        { key: "name", label: "Category Name" },
+        { key: "parent", label: "Parent Category" },
+        { key: "type", label: "Type" },
+        { key: "itemCount", label: "Items", align: "right" },
+        { key: "status", label: "Status", badge: true },
+      ],
+      rows: [
+        { code: "CAT-01", name: "Fasteners", parent: "—", type: "Product", itemCount: 24, status: "Active" },
+        { code: "CAT-02", name: "Bearings", parent: "—", type: "Product", itemCount: 12, status: "Active" },
+        { code: "CAT-03", name: "Hydraulics", parent: "—", type: "Product", itemCount: 8, status: "Active" },
+        { code: "CAT-04", name: "Electricals", parent: "—", type: "Product", itemCount: 31, status: "Active" },
+        { code: "CAT-05", name: "Metals", parent: "—", type: "Material", itemCount: 15, status: "Active" },
+        { code: "CAT-06", name: "Polymers", parent: "—", type: "Material", itemCount: 9, status: "Active" },
+        { code: "CAT-07", name: "Sub-Assembly", parent: "Electricals", type: "Product", itemCount: 6, status: "Active" },
+        { code: "CAT-08", name: "Seals", parent: "—", type: "Product", itemCount: 7, status: "Inactive" },
+      ],
+    },
+    form: {
+      tabs: [
+        {
+          key: "details",
+          label: "Category Details",
+          fields: [
+            { key: "code", label: "Category Code", type: "text", required: true, placeholder: "CAT-09" },
+            { key: "name", label: "Category Name", type: "text", required: true },
+            { key: "parent", label: "Parent Category", type: "select", options: ["—", "Fasteners", "Bearings", "Hydraulics", "Electricals", "Metals", "Polymers"] },
+            { key: "type", label: "Category Type", type: "select", required: true, options: ["Product", "Material"] },
+            { key: "description", label: "Description", type: "textarea", span: "full" },
+            { key: "displayOrder", label: "Display Order", type: "number" },
+            { key: "status", label: "Status", type: "select", options: statusOptions },
+          ],
+        },
+      ],
+    },
+  },
+
+  unit: {
+    label: "Unit",
+    singular: "Unit",
+    icon: "Ruler",
+    description: "Manage measurement units and conversions",
+    statLabel: "Total Units",
+    list: {
+      subtitle: "Manage measurement units and conversions.",
+      searchPlaceholder: "Search by unit code, unit name...",
+      searchKeys: ["code", "name"],
+      deriveRow: (values) => ({ isBase: !values.baseUnit }),
+      filters: [
+        { key: "type", label: "Unit Type", options: ["Count", "Weight", "Length", "Volume"] },
+        { key: "status", label: "Status", options: ["Active", "Inactive"] },
+      ],
+      summary: [
+        { label: "Total Units", tone: "primary", compute: (rows) => rows.length },
+        { label: "Base Units", tone: "accent", compute: (rows) => rows.filter((r) => r.isBase).length },
+        { label: "Derived Units", tone: "accent", compute: (rows) => rows.filter((r) => !r.isBase).length },
+        { label: "Active Units", tone: "success", compute: (rows) => rows.filter((r) => r.status === "Active").length },
+      ],
+      columns: [
+        { key: "code", label: "Unit Code", mono: true },
+        { key: "name", label: "Unit Name" },
+        { key: "symbol", label: "Symbol" },
+        { key: "type", label: "Type" },
+        { key: "decimalPlaces", label: "Decimals", align: "right" },
+        { key: "status", label: "Status", badge: true },
+      ],
+      rows: [
+        { code: "UOM-01", name: "Pieces", symbol: "PCS", type: "Count", decimalPlaces: 0, isBase: true, status: "Active" },
+        { code: "UOM-02", name: "Kilogram", symbol: "KG", type: "Weight", decimalPlaces: 2, isBase: true, status: "Active" },
+        { code: "UOM-03", name: "Meter", symbol: "MTR", type: "Length", decimalPlaces: 2, isBase: true, status: "Active" },
+        { code: "UOM-04", name: "Liter", symbol: "LTR", type: "Volume", decimalPlaces: 2, isBase: true, status: "Active" },
+        { code: "UOM-05", name: "Box", symbol: "BOX", type: "Count", decimalPlaces: 0, isBase: false, status: "Active" },
+        { code: "UOM-06", name: "Ton", symbol: "TON", type: "Weight", decimalPlaces: 3, isBase: false, status: "Active" },
+      ],
+    },
+    form: {
+      tabs: [
+        {
+          key: "details",
+          label: "Unit Details",
+          fields: [
+            { key: "code", label: "Unit Code", type: "text", required: true, placeholder: "UOM-07" },
+            { key: "name", label: "Unit Name", type: "text", required: true },
+            { key: "symbol", label: "Symbol", type: "text", required: true, placeholder: "e.g. PCS" },
+            { key: "type", label: "Unit Type", type: "select", required: true, options: ["Count", "Weight", "Length", "Volume"] },
+            { key: "decimalPlaces", label: "Decimal Places", type: "number" },
+            { key: "baseUnit", label: "Base Unit", type: "select", options: ["—", "Pieces", "Kilogram", "Meter", "Liter"] },
+            { key: "conversionFactor", label: "Conversion Factor", type: "number" },
+            { key: "description", label: "Description", type: "textarea", span: "full" },
+            { key: "status", label: "Status", type: "select", options: statusOptions },
+            { key: "conversions", label: "Unit Conversion", type: "conversionTable", span: "full" },
+          ],
+        },
+      ],
+    },
+  },
+
+  supplier: {
+    label: "Supplier",
+    singular: "Supplier",
+    icon: "Truck",
+    description: "Manage suppliers and vendor information",
+    statLabel: "Active Suppliers",
+    list: {
+      subtitle: "Manage suppliers and vendor information.",
+      searchPlaceholder: "Search by supplier code, supplier name...",
+      searchKeys: ["code", "name"],
+      filters: [
+        { key: "category", label: "Category", options: ["Metals", "Bearings", "Hydraulics", "Polymers", "Electricals"] },
+        { key: "status", label: "Status", options: ["Active", "Inactive"] },
+      ],
+      summary: [
+        { label: "Total Suppliers", tone: "primary", compute: (rows) => rows.length },
+        { label: "Active Suppliers", tone: "success", compute: (rows) => rows.filter((r) => r.status === "Active").length },
+        { label: "Inactive Suppliers", tone: "muted", compute: (rows) => rows.filter((r) => r.status === "Inactive").length },
+        { label: "Preferred (4.5★+)", tone: "accent", compute: (rows) => rows.filter((r) => r.rating >= 4.5).length },
+      ],
+      columns: [
+        { key: "code", label: "Supplier Code", mono: true },
+        { key: "name", label: "Supplier Name" },
+        { key: "category", label: "Category" },
+        { key: "contact", label: "Contact Person" },
+        { key: "phone", label: "Phone" },
+        { key: "rating", label: "Rating", align: "right" },
+        { key: "status", label: "Status", badge: true },
+      ],
+      rows: [
+        { code: "SUP-101", name: "Bharat Steel Corp", category: "Metals", contact: "Rajesh Kumar", phone: "+91 98200 11223", rating: 4.5, status: "Active" },
+        { code: "SUP-102", name: "Precision Bearings Ltd", category: "Bearings", contact: "Anita Sharma", phone: "+91 98450 33221", rating: 4.8, status: "Active" },
+        { code: "SUP-103", name: "Hydro Tech Industries", category: "Hydraulics", contact: "Vikram Singh", phone: "+91 99870 44556", rating: 4.2, status: "Active" },
+        { code: "SUP-104", name: "Global Polymers Inc", category: "Polymers", contact: "Meera Iyer", phone: "+91 98220 99887", rating: 3.9, status: "Active" },
+        { code: "SUP-105", name: "ElectroParts Supply Co", category: "Electricals", contact: "Suresh Patel", phone: "+91 97890 66778", rating: 4.0, status: "Inactive" },
+      ],
+    },
+    form: {
+      tabs: [
+        {
+          key: "basic",
+          label: "Basic Information",
+          fields: [
+            { key: "code", label: "Supplier Code", type: "text", required: true, placeholder: "SUP-106" },
+            { key: "name", label: "Supplier Name", type: "text", required: true },
+            { key: "category", label: "Category", type: "select", required: true, options: ["Metals", "Bearings", "Hydraulics", "Polymers", "Electricals"] },
+            { key: "type", label: "Supplier Type", type: "select", options: ["Manufacturer", "Distributor", "Trader"] },
+            { key: "website", label: "Website", type: "text" },
+          ],
+        },
+        {
+          key: "contact",
+          label: "Contact",
+          fields: [
+            { key: "contact", label: "Contact Person", type: "text", required: true },
+            { key: "designation", label: "Designation", type: "text" },
+            { key: "phone", label: "Phone", type: "text", required: true },
+            { key: "email", label: "Email", type: "text" },
+            { key: "address", label: "Address", type: "textarea", span: "full" },
+          ],
+        },
+        {
+          key: "tax",
+          label: "Tax & Legal",
+          fields: [
+            { key: "gstNumber", label: "GST Number", type: "text" },
+            { key: "panNumber", label: "PAN Number", type: "text" },
+            { key: "registrationNumber", label: "Registration Number", type: "text" },
+          ],
+        },
+        {
+          key: "bank",
+          label: "Bank Details",
+          fields: [
+            { key: "bankName", label: "Bank Name", type: "text" },
+            { key: "accountNumber", label: "Account Number", type: "text" },
+            { key: "ifsc", label: "IFSC Code", type: "text" },
+            { key: "accountHolder", label: "Account Holder Name", type: "text" },
+          ],
+        },
+        {
+          key: "purchasing",
+          label: "Purchasing",
+          fields: [
+            { key: "paymentTerms", label: "Payment Terms", type: "select", options: ["Net 15", "Net 30", "Net 45", "Advance"] },
+            { key: "leadTime", label: "Standard Lead Time (days)", type: "number" },
+            { key: "creditLimit", label: "Credit Limit", type: "number" },
+          ],
+        },
+        {
+          key: "rating",
+          label: "Rating",
+          fields: [
+            { key: "rating", label: "Overall Rating (out of 5)", type: "number" },
+            { key: "qualityRating", label: "Quality Rating", type: "number" },
+            { key: "deliveryRating", label: "Delivery Rating", type: "number" },
+          ],
+        },
+        {
+          key: "additional",
+          label: "Additional Information",
+          fields: [
+            { key: "internalNotes", label: "Internal Notes", type: "textarea", span: "full" },
+            { key: "attachment", label: "Attachment Upload", type: "file" },
+            { key: "status", label: "Status", type: "select", options: statusOptions },
+          ],
+        },
+      ],
+    },
+  },
+
+  warehouse: {
+    label: "Warehouse",
+    singular: "Warehouse",
+    icon: "Warehouse",
+    description: "Manage warehouses and storage facilities",
+    statLabel: "Total Warehouses",
+    list: {
+      subtitle: "Manage warehouses and storage facilities.",
+      searchPlaceholder: "Search by warehouse code, warehouse name...",
+      searchKeys: ["code", "name"],
+      deriveRow: () => ({ utilization: 0 }),
+      filters: [
+        { key: "type", label: "Warehouse Type", options: ["Manufacturing", "Raw Material", "Finished Goods", "Distribution", "General"] },
+        { key: "status", label: "Status", options: ["Active", "Inactive"] },
+      ],
+      summary: [
+        { label: "Total Warehouses", tone: "primary", compute: (rows) => rows.length },
+        { label: "Active Warehouses", tone: "success", compute: (rows) => rows.filter((r) => r.status === "Active").length },
+        { label: "Avg. Utilization", tone: "accent", compute: (rows) => `${Math.round(rows.reduce((sum, r) => sum + r.utilization, 0) / rows.length)}%` },
+        { label: "Near Capacity (>80%)", tone: "warning", compute: (rows) => rows.filter((r) => r.utilization > 80).length },
+      ],
+      columns: [
+        { key: "code", label: "Warehouse Code", mono: true },
+        { key: "name", label: "Warehouse Name" },
+        { key: "type", label: "Type" },
+        { key: "manager", label: "Manager" },
+        { key: "utilization", label: "Capacity Used", align: "right", percent: true },
+        { key: "status", label: "Status", badge: true },
+      ],
+      rows: [
+        { code: "WH-01", name: "Main Manufacturing Plant", type: "Manufacturing", manager: "Anil Deshmukh", utilization: 78, status: "Active" },
+        { code: "WH-02", name: "Raw Material Store", type: "Raw Material", manager: "Priya Nair", utilization: 62, status: "Active" },
+        { code: "WH-03", name: "Finished Goods Warehouse", type: "Finished Goods", manager: "Karan Mehta", utilization: 85, status: "Active" },
+        { code: "WH-04", name: "Regional Distribution Hub", type: "Distribution", manager: "Sunita Rao", utilization: 45, status: "Active" },
+        { code: "WH-05", name: "Old Storage Facility", type: "General", manager: "—", utilization: 12, status: "Inactive" },
+      ],
+    },
+    form: {
+      tabs: [
+        {
+          key: "basic",
+          label: "Basic Information",
+          fields: [
+            { key: "code", label: "Warehouse Code", type: "text", required: true, placeholder: "WH-06" },
+            { key: "name", label: "Warehouse Name", type: "text", required: true },
+            { key: "type", label: "Warehouse Type", type: "select", required: true, options: ["Manufacturing", "Raw Material", "Finished Goods", "Distribution", "General"] },
+            { key: "manager", label: "Warehouse Manager", type: "text" },
+          ],
+        },
+        {
+          key: "address",
+          label: "Address",
+          fields: [
+            { key: "addressLine", label: "Address", type: "textarea", span: "full" },
+            { key: "city", label: "City", type: "text" },
+            { key: "state", label: "State", type: "text" },
+            { key: "pincode", label: "Pincode", type: "text" },
+          ],
+        },
+        {
+          key: "capacity",
+          label: "Capacity",
+          fields: [
+            { key: "capacity", label: "Capacity", type: "number" },
+            { key: "capacityUnit", label: "Capacity Unit", type: "select", options: ["Sq. Ft.", "Pallets", "Cubic Meters"] },
+            { key: "maxWeight", label: "Maximum Weight (Ton)", type: "number" },
+            { key: "maxVolume", label: "Maximum Volume (m³)", type: "number" },
+          ],
+        },
+        {
+          key: "configuration",
+          label: "Configuration",
+          fields: [
+            { key: "binManagement", label: "Bin Management", type: "toggle" },
+            { key: "batchTracking", label: "Batch Tracking", type: "toggle" },
+            { key: "serialTracking", label: "Serial Tracking", type: "toggle" },
+            { key: "qualityArea", label: "Quality Inspection Area", type: "toggle" },
+            { key: "wipArea", label: "WIP Area", type: "toggle" },
+            { key: "dispatchArea", label: "Dispatch Area", type: "toggle" },
+          ],
+        },
+        {
+          key: "additional",
+          label: "Additional Information",
+          fields: [
+            { key: "internalNotes", label: "Internal Notes", type: "textarea", span: "full" },
+            { key: "status", label: "Status", type: "select", options: statusOptions },
+          ],
+        },
+      ],
+    },
+  },
+
+  "stock-location": {
+    label: "Stock Location",
+    singular: "Location",
+    icon: "MapPin",
+    description: "Manage racks, shelves, bins and storage locations",
+    statLabel: "Total Locations",
+    list: {
+      subtitle: "Manage racks, shelves, bins and storage locations.",
+      searchPlaceholder: "Search by location code, location name...",
+      searchKeys: ["code", "name"],
+      filters: [
+        { key: "warehouse", label: "Warehouse", options: ["Main Manufacturing Plant", "Raw Material Store", "Finished Goods Warehouse"] },
+        { key: "type", label: "Location Type", options: ["Rack", "Shelf", "Bin", "Floor", "Zone"] },
+        { key: "status", label: "Status", options: ["Active", "Inactive"] },
+      ],
+      summary: [
+        { label: "Total Locations", tone: "primary", compute: (rows) => rows.length },
+        { label: "Active Locations", tone: "success", compute: (rows) => rows.filter((r) => r.status === "Active").length },
+        { label: "Near Capacity (>80%)", tone: "warning", compute: (rows) => rows.filter((r) => r.utilization > 80).length },
+        { label: "Hazardous Zones", tone: "danger", compute: (rows) => rows.filter((r) => r.hazardous).length },
+      ],
+      columns: [
+        { key: "code", label: "Location Code", mono: true },
+        { key: "name", label: "Location Name" },
+        { key: "warehouse", label: "Warehouse" },
+        { key: "type", label: "Type" },
+        { key: "utilization", label: "Utilization", align: "right", percent: true },
+        { key: "status", label: "Status", badge: true },
+      ],
+      rows: [
+        { code: "LOC-A01-R1-S1", name: "Rack 1 Shelf 1", warehouse: "Main Manufacturing Plant", type: "Rack", utilization: 68, hazardous: false, status: "Active" },
+        { code: "LOC-A01-R1-S2", name: "Rack 1 Shelf 2", warehouse: "Main Manufacturing Plant", type: "Rack", utilization: 92, hazardous: false, status: "Active" },
+        { code: "LOC-B02-BIN1", name: "Bin 1", warehouse: "Raw Material Store", type: "Bin", utilization: 40, hazardous: false, status: "Active" },
+        { code: "LOC-C03-ZONE-HZ", name: "Hazardous Zone C3", warehouse: "Raw Material Store", type: "Zone", utilization: 55, hazardous: true, status: "Active" },
+        { code: "LOC-D01-FLOOR", name: "Floor Storage D1", warehouse: "Finished Goods Warehouse", type: "Floor", utilization: 30, hazardous: false, status: "Active" },
+      ],
+    },
+    form: {
+      tabs: [
+        {
+          key: "basic",
+          label: "Basic Information",
+          fields: [
+            { key: "code", label: "Location Code", type: "text", required: true, placeholder: "LOC-E02-BIN3" },
+            { key: "name", label: "Location Name", type: "text", required: true },
+            { key: "warehouse", label: "Warehouse", type: "select", required: true, options: ["Main Manufacturing Plant", "Raw Material Store", "Finished Goods Warehouse", "Regional Distribution Hub"] },
+            { key: "type", label: "Location Type", type: "select", required: true, options: ["Rack", "Shelf", "Bin", "Floor", "Zone"] },
+          ],
+        },
+        {
+          key: "hierarchy",
+          label: "Hierarchy",
+          fields: [
+            { key: "zone", label: "Zone", type: "text", placeholder: "e.g. Zone A" },
+            { key: "rack", label: "Rack", type: "text", placeholder: "e.g. Rack 1" },
+            { key: "shelf", label: "Shelf", type: "text", placeholder: "e.g. Shelf 2" },
+            { key: "bin", label: "Bin", type: "text", placeholder: "e.g. Bin 3" },
+          ],
+        },
+        {
+          key: "capacity",
+          label: "Capacity",
+          fields: [
+            { key: "maxQuantity", label: "Maximum Quantity", type: "number" },
+            { key: "maxWeight", label: "Maximum Weight (kg)", type: "number" },
+            { key: "maxVolume", label: "Maximum Volume (m³)", type: "number" },
+            { key: "utilization", label: "Current Utilization (%)", type: "number" },
+          ],
+        },
+        {
+          key: "rules",
+          label: "Storage Rules",
+          fields: [
+            { key: "allowedCategory", label: "Allowed Item Category", type: "select", options: ["Any", "Fasteners", "Bearings", "Hydraulics", "Electricals", "Metals", "Polymers", "Chemicals"] },
+            { key: "temperature", label: "Temperature Requirement", type: "select", options: ["Ambient", "Cool Storage", "Cold Storage", "Frozen"] },
+            { key: "hazardous", label: "Hazardous Material", type: "toggle" },
+            { key: "batchAllowed", label: "Batch Allowed", type: "toggle" },
+            { key: "expiryTracking", label: "Expiry Tracking", type: "toggle" },
+          ],
+        },
+        {
+          key: "additional",
+          label: "Additional Information",
+          fields: [
+            { key: "internalNotes", label: "Internal Notes", type: "textarea", span: "full" },
+            { key: "status", label: "Status", type: "select", options: statusOptions },
+          ],
+        },
+      ],
+    },
+  },
+};
+
+export const masterEntityOrder = ["product-item", "raw-material", "category", "unit", "supplier", "warehouse", "stock-location"];
