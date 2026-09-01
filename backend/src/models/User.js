@@ -81,8 +81,6 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-userSchema.index({ email: 1 }, { unique: true });
-userSchema.index({ employeeCode: 1 });
 userSchema.index({ phone: 1 });
 userSchema.index({ tenantId: 1, storeId: 1 });
 userSchema.index({ userType: 1 });

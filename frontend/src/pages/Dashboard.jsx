@@ -20,8 +20,13 @@ import {
   PackagePlus,
   TriangleAlert,
 } from "lucide-react";
-import { products, purchases, sales } from "../data/inventory.js";
+import { useAuth } from "../stores/AuthStore.jsx";
+import { useMasterData } from "../components/master/MasterDataContext.jsx";
+import { usePurchaseData } from "../components/purchase/PurchaseDataContext.jsx";
+import { useSalesData } from "../components/sales/SalesDataContext.jsx";
 import { Metric, Panel } from "../components/ui.jsx";
+import { poTotals } from "../data/purchaseManagement.js";
+import { computeOrderTotals } from "../data/sales/shared.js";
 
 const money = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 const dayLabel = new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short" });
@@ -39,17 +44,28 @@ function greeting() {
 }
 
 export default function Dashboard() {
-  const stores = [...new Set(products.map((product) => product.store))];
-  const categories = [...new Set(products.map((product) => product.category))];
-  const lowStock = products.filter((product) => product.stock <= product.reorder);
-  const totalValue = products.reduce((sum, product) => sum + product.value, 0);
+  const { session } = useAuth();
+  const masterData = useMasterData();
+  const purchaseData = usePurchaseData();
+  const salesData = useSalesData();
+  const products = masterData.getRows("product-item");
+  const purchases = purchaseData.getRows("purchase-order");
+  const sales = salesData.getRows("sales-order");
+  const companyName = session?.user?.company?.businessName || "your company";
 
-  const openPOs = purchases.filter((po) => po.status !== "Received");
-  const openPOValue = openPOs.reduce((sum, po) => sum + po.amount, 0);
+  const stores = [...new Set(products.map((product) => product.warehouse).filter(Boolean))];
+  const categories = [...new Set(products.map((product) => product.category).filter(Boolean))];
+  const lowStock = products.filter((product) => product.status === "Low Stock" || (product.reorderLevel && Number(product.stock) <= Number(product.reorderLevel)));
+  const totalValue = products.reduce((sum, product) => sum + (Number(product.stock) || 0) * (Number(product.price) || 0), 0);
+
+  const openPOs = purchases.filter((po) => !["Received", "Closed", "Cancelled"].includes(po.status));
+  const openPOValue = openPOs.reduce((sum, po) => sum + poTotals(po.items || []).grandTotal, 0);
 
   const categoryBreakdown = categories
     .map((category) => {
-      const value = products.filter((product) => product.category === category).reduce((sum, p) => sum + p.value, 0);
+      const value = products
+        .filter((product) => product.category === category)
+        .reduce((sum, product) => sum + (Number(product.stock) || 0) * (Number(product.price) || 0), 0);
       return { category, value, pct: totalValue ? Math.round((value / totalValue) * 100) : 0 };
     })
     .sort((a, b) => b.value - a.value);
@@ -60,15 +76,15 @@ export default function Dashboard() {
     entry[key] += amount;
     trendByDate.set(date, entry);
   }
-  purchases.forEach((po) => addTrend(po.date, "purchases", po.amount));
-  sales.forEach((sale) => addTrend(sale.date, "sales", sale.amount));
+  purchases.forEach((po) => addTrend(po.date, "purchases", poTotals(po.items || []).grandTotal));
+  sales.forEach((sale) => addTrend(sale.date, "sales", computeOrderTotals(sale.items || [], sale).grandTotal));
   const weeklyTrend = [...trendByDate.values()]
     .sort((a, b) => new Date(a.date) - new Date(b.date))
     .map((entry) => ({ ...entry, label: dayLabel.format(new Date(entry.date)) }));
 
   const recentActivity = [
-    ...purchases.map((po) => ({ type: "purchase", id: po.id, party: po.vendor, amount: po.amount, date: po.date })),
-    ...sales.map((sale) => ({ type: "sale", id: sale.id, party: sale.customer, amount: sale.amount, date: sale.date })),
+    ...purchases.map((po) => ({ type: "purchase", id: po.id, party: po.vendor, amount: poTotals(po.items || []).grandTotal, date: po.date })),
+    ...sales.map((sale) => ({ type: "sale", id: sale.id, party: sale.customerName || sale.customerId, amount: computeOrderTotals(sale.items || [], sale).grandTotal, date: sale.date })),
   ].sort((a, b) => new Date(b.date) - new Date(a.date));
 
   return (
@@ -76,7 +92,7 @@ export default function Dashboard() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">Overview</p>
-          <h2 className="text-2xl font-semibold text-[var(--ink)]">{greeting()}</h2>
+          <h2 className="text-2xl font-semibold text-[var(--ink)]">{greeting()}, {companyName}</h2>
           <p className="mt-1 text-sm text-[var(--muted)]">{todayLabel} — here's how your inventory is running today.</p>
         </div>
         <button className="rounded-md bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-white hover:bg-[var(--primary-deep)]">
@@ -112,7 +128,7 @@ export default function Dashboard() {
         <Metric
           label="Low Stock"
           value={lowStock.length}
-          sub={`${Math.round((lowStock.length / products.length) * 100)}% of catalog`}
+          sub={`${products.length ? Math.round((lowStock.length / products.length) * 100) : 0}% of catalog`}
           icon={TriangleAlert}
           tone="warning"
         />
@@ -193,11 +209,11 @@ export default function Dashboard() {
           <div className="space-y-3">
             {lowStock.length === 0 && <p className="text-sm text-[var(--muted)]">Nothing below reorder level.</p>}
             {lowStock.map((item) => (
-              <div key={item.sku} className="rounded-md border border-amber-200 bg-amber-50 p-3">
+              <div key={item.code} className="rounded-md border border-amber-200 bg-amber-50 p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-semibold text-amber-950">{item.name}</p>
-                    <p className="text-sm text-amber-800">{item.store}</p>
+                    <p className="text-sm text-amber-800">{item.warehouse}</p>
                   </div>
                   <span className="text-sm font-semibold text-amber-900">{item.stock} {item.unit}</span>
                 </div>

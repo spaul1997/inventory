@@ -1,5 +1,6 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useMemo } from "react";
 import { purchaseEntities } from "../../data/purchaseManagement.js";
+import { useScopedState } from "../../lib/scopedStorage.js";
 
 const PurchaseDataContext = createContext(null);
 
@@ -11,8 +12,8 @@ function initialState() {
   return state;
 }
 
-export function PurchaseDataProvider({ children }) {
-  const [data, setData] = useState(initialState);
+export function PurchaseDataProvider({ children, storageScope }) {
+  const [data, setData] = useScopedState(storageScope, "purchase-data", initialState);
 
   const getRows = useCallback((entityKey) => data[entityKey] || [], [data]);
   const getRecord = useCallback((entityKey, id) => (data[entityKey] || []).find((row) => row.id === id), [data]);

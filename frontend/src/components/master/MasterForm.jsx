@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { AlertCircle, ChevronRight as Crumb, Paperclip, Plus, Trash2 } from "lucide-react";
 import { masterEntities } from "../../data/masterManagement.js";
@@ -17,7 +17,29 @@ function blankValues(entity) {
   return values;
 }
 
+function optionLabel(row) {
+  return row.name || row.storeName || row.code || "";
+}
+
+function uniqueOptions(values) {
+  return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
+function resolveFieldOptions(field, getRows, currentValue) {
+  if (field.optionsFrom === "warehouse") {
+    const warehouseOptions = getRows("warehouse")
+      .filter((row) => row.status !== "Inactive")
+      .map(optionLabel);
+
+    return uniqueOptions([...warehouseOptions, currentValue]);
+  }
+
+  return field.options || [];
+}
+
 function Field({ field, value, error, disabled, onChange }) {
+  const isDisabled = disabled || field.readOnly;
+  const options = field.options || [];
   const baseInput = `w-full rounded-md border bg-white px-3 py-2 text-sm text-[var(--ink)] outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-[var(--muted)] ${
     error ? "border-[var(--danger)] focus:ring-red-100" : "border-[var(--line)]"
   }`;
@@ -39,7 +61,7 @@ function Field({ field, value, error, disabled, onChange }) {
         <span className="text-sm font-medium text-[var(--ink)]">{field.label}</span>
         <button
           type="button"
-          disabled={disabled}
+          disabled={isDisabled}
           onClick={() => onChange(!value)}
           aria-pressed={Boolean(value)}
           className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
@@ -74,9 +96,9 @@ function Field({ field, value, error, disabled, onChange }) {
           {field.label}
           {field.required && <span className="ml-0.5 text-[var(--danger)]">*</span>}
         </label>
-        <select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} className={baseInput}>
+        <select value={value} disabled={isDisabled} onChange={(event) => onChange(event.target.value)} className={baseInput}>
           <option value="">Select {field.label.toLowerCase()}...</option>
-          {field.options.map((option) => (
+          {options.map((option) => (
             <option key={option} value={option}>
               {option}
             </option>
@@ -96,7 +118,7 @@ function Field({ field, value, error, disabled, onChange }) {
         </label>
         <textarea
           value={value}
-          disabled={disabled}
+          disabled={isDisabled}
           onChange={(event) => onChange(event.target.value)}
           rows={3}
           className={baseInput}
@@ -139,7 +161,7 @@ function Field({ field, value, error, disabled, onChange }) {
           {rows.map((row, index) => (
             <div key={index} className="grid grid-cols-[1fr_1fr_1fr_auto] items-center gap-2 border-b border-slate-100 px-3 py-2 last:border-0">
               <input
-                disabled={disabled}
+                disabled={isDisabled}
                 value={row.from}
                 onChange={(event) => {
                   const next = [...rows];
@@ -149,7 +171,7 @@ function Field({ field, value, error, disabled, onChange }) {
                 className="rounded border border-[var(--line)] px-2 py-1.5 text-sm"
               />
               <input
-                disabled={disabled}
+                disabled={isDisabled}
                 value={row.to}
                 onChange={(event) => {
                   const next = [...rows];
@@ -159,7 +181,7 @@ function Field({ field, value, error, disabled, onChange }) {
                 className="rounded border border-[var(--line)] px-2 py-1.5 text-sm"
               />
               <input
-                disabled={disabled}
+                disabled={isDisabled}
                 type="number"
                 value={row.factor}
                 onChange={(event) => {
@@ -206,7 +228,7 @@ function Field({ field, value, error, disabled, onChange }) {
       <input
         type={field.type === "number" ? "number" : "text"}
         value={value}
-        disabled={disabled}
+        disabled={isDisabled}
         placeholder={field.placeholder}
         onChange={(event) => onChange(event.target.value)}
         className={baseInput}
@@ -236,7 +258,14 @@ export function MasterForm({ entityKey, mode, recordId }) {
   const [activeTab, setActiveTab] = useState(entity.form.tabs[0].key);
   const [errors, setErrors] = useState({});
   const [errorBanner, setErrorBanner] = useState("");
+  const [saving, setSaving] = useState(false);
   const isView = mode === "view";
+
+  useEffect(() => {
+    if (recordId && existingRecord) {
+      setValues({ ...blankValues(entity), ...existingRecord });
+    }
+  }, [entity, existingRecord, recordId]);
 
   function setField(key, value) {
     setValues((prev) => ({ ...prev, [key]: value }));
@@ -247,7 +276,7 @@ export function MasterForm({ entityKey, mode, recordId }) {
     let firstInvalidTab = null;
     entity.form.tabs.forEach((tab) => {
       tab.fields.forEach((field) => {
-        if (field.required && !String(values[field.key] ?? "").trim()) {
+        if (field.required && !field.autoGenerated && !String(values[field.key] ?? "").trim()) {
           nextErrors[field.key] = `${field.label} is required.`;
           if (!firstInvalidTab) firstInvalidTab = tab.key;
         }
@@ -263,44 +292,63 @@ export function MasterForm({ entityKey, mode, recordId }) {
     return true;
   }
 
-  function persist(status) {
+  async function persist(status) {
     const derived = entity.list.deriveRow ? entity.list.deriveRow(values) : {};
     const record = { ...values, ...derived, status: status || values.status || "Active" };
     if (mode === "edit" && recordId) {
-      updateRow(entityKey, recordId, record);
-    } else {
-      addRow(entityKey, record);
+      return updateRow(entityKey, recordId, record);
     }
-    return record;
+    return addRow(entityKey, record);
   }
 
   function handleCancel() {
     navigate(`/master-management/${entityKey}`);
   }
 
-  function handleSaveDraft() {
-    if (!String(values.code || "").trim() || !String(values.name || "").trim()) {
-      setErrorBanner("Item Code and Name are required, even for a draft.");
+  async function handleSaveDraft() {
+    if (!String(values.name || "").trim() || (!entity.autoGeneratedCode && !String(values.code || "").trim())) {
+      setErrorBanner(entity.autoGeneratedCode ? "Name is required, even for a draft." : "Code and Name are required, even for a draft.");
       return;
     }
-    persist("Draft");
-    showToast(`Saved as draft.`);
-    navigate(`/master-management/${entityKey}`);
+    setSaving(true);
+    try {
+      await persist("Draft");
+      showToast(`Saved as draft.`);
+      navigate(`/master-management/${entityKey}`);
+    } catch (err) {
+      setErrorBanner(err.message || `Unable to save ${entity.singular.toLowerCase()}.`);
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function handleSaveAndNew() {
+  async function handleSaveAndNew() {
     if (!validate()) return;
-    persist();
-    showToast(`${entity.singular} saved. Ready for a new entry.`);
-    setValues(blankValues(entity));
-    setActiveTab(entity.form.tabs[0].key);
+    setSaving(true);
+    try {
+      await persist();
+      showToast(`${entity.singular} saved. Ready for a new entry.`);
+      setValues(blankValues(entity));
+      setActiveTab(entity.form.tabs[0].key);
+    } catch (err) {
+      setErrorBanner(err.message || `Unable to save ${entity.singular.toLowerCase()}.`);
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function handleSave() {
+  async function handleSave() {
     if (!validate()) return;
-    persist();
-    showToast(`${entity.singular} saved successfully.`);
-    navigate(`/master-management/${entityKey}`);
+    setSaving(true);
+    try {
+      await persist();
+      showToast(`${entity.singular} saved successfully.`);
+      navigate(`/master-management/${entityKey}`);
+    } catch (err) {
+      setErrorBanner(err.message || `Unable to save ${entity.singular.toLowerCase()}.`);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -352,7 +400,10 @@ export function MasterForm({ entityKey, mode, recordId }) {
                 {tab.fields.map((field) => (
                   <div key={field.key} className={field.span === "full" ? "sm:col-span-2 lg:col-span-3" : ""}>
                     <Field
-                      field={field}
+                      field={{
+                        ...field,
+                        options: resolveFieldOptions(field, getRows, values[field.key]),
+                      }}
                       value={field.type === "computed" ? values : values[field.key]}
                       error={errors[field.key]}
                       disabled={isView}
@@ -380,17 +431,17 @@ export function MasterForm({ entityKey, mode, recordId }) {
           </>
         ) : (
           <>
-            <button type="button" onClick={handleCancel} className="rounded-md border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-slate-50">
+            <button type="button" onClick={handleCancel} disabled={saving} className="rounded-md border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-70">
               Cancel
             </button>
-            <button type="button" onClick={handleSaveDraft} className="rounded-md border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-slate-50">
+            <button type="button" onClick={handleSaveDraft} disabled={saving} className="rounded-md border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-70">
               Save as Draft
             </button>
-            <button type="button" onClick={handleSaveAndNew} className="rounded-md border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-slate-50">
+            <button type="button" onClick={handleSaveAndNew} disabled={saving} className="rounded-md border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-70">
               Save &amp; New
             </button>
-            <button type="button" onClick={handleSave} className="rounded-md bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-white hover:bg-[var(--primary-deep)]">
-              Save {entity.singular}
+            <button type="button" onClick={handleSave} disabled={saving} className="rounded-md bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-white hover:bg-[var(--primary-deep)] disabled:cursor-not-allowed disabled:opacity-70">
+              {saving ? "Saving..." : `Save ${entity.singular}`}
             </button>
           </>
         )}

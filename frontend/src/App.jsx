@@ -1,9 +1,11 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Route, Routes, Navigate, useLocation, useNavigate } from "react-router-dom";
-import { Bell, Boxes, CreditCard, LogOut, Search, Settings as SettingsIcon, UserCog } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+import { NavLink, Route, Routes, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Bell, Boxes, Building2, CreditCard, LayoutDashboard, LogOut, Search, Settings as SettingsIcon, UserCog } from "lucide-react";
 import { menu } from "./data/menu.js";
 import { MegaMenu } from "./components/MegaMenu.jsx";
 import { ToastProvider } from "./components/Toast.jsx";
+import { AuthProvider, useAuth } from "./stores/AuthStore.jsx";
+import { SpecialAdminDataProvider } from "./stores/SpecialAdminStore.jsx";
 import { MasterDataProvider } from "./components/master/MasterDataContext.jsx";
 import { PurchaseDataProvider } from "./components/purchase/PurchaseDataContext.jsx";
 import { StockDataProvider } from "./components/stock/StockDataContext.jsx";
@@ -12,6 +14,7 @@ import { SalesDataProvider } from "./components/sales/SalesDataContext.jsx";
 import { ReportConfigProvider } from "./components/reports/ReportConfigContext.jsx";
 import Login from "./pages/Login.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
+import { SpecialAdminCompany, SpecialAdminDashboard, SpecialAdminPayment } from "./pages/SpecialAdmin.jsx";
 import EditProfile from "./pages/EditProfile.jsx";
 import Settings from "./pages/Settings.jsx";
 import Billing from "./pages/Billing.jsx";
@@ -33,66 +36,27 @@ import ManufacturingSalesReports from "./pages/ManufacturingSalesReports.jsx";
 import { ManufacturingDashboard, ManufacturingListPage, ManufacturingFormPage, BomFormPage, WorkOrderFormPage, WipManagement } from "./pages/Manufacturing.jsx";
 import { SalesListPage, SalesFormPage, CustomerProfilePage } from "./pages/Sales.jsx";
 
-const SESSION_KEY = "ims-session";
+const specialAdminTabs = [
+  { label: "Dashboard", to: "/dashboard", icon: LayoutDashboard },
+  { label: "Company", to: "/company", icon: Building2 },
+  { label: "Payment", to: "/payment", icon: CreditCard },
+];
 
-const AuthContext = createContext(null);
-
-function getStoredSession() {
-  try {
-    return JSON.parse(localStorage.getItem(SESSION_KEY)) || null;
-  } catch {
-    localStorage.removeItem(SESSION_KEY);
-    return null;
-  }
-}
-
-function AuthProvider({ children }) {
-  const [session, setSession] = useState(getStoredSession);
-
-  const value = useMemo(
-    () => ({
-      session,
-      login(nextSession, remember) {
-        setSession(nextSession);
-        if (remember) {
-          localStorage.setItem(SESSION_KEY, JSON.stringify(nextSession));
-        } else {
-          localStorage.removeItem(SESSION_KEY);
-        }
-      },
-      logout() {
-        setSession(null);
-        localStorage.removeItem(SESSION_KEY);
-      },
-      updateProfile(patch) {
-        setSession((prev) => {
-          if (!prev) return prev;
-          const next = { ...prev, user: { ...prev.user, ...patch } };
-          if (localStorage.getItem(SESSION_KEY)) {
-            localStorage.setItem(SESSION_KEY, JSON.stringify(next));
-          }
-          return next;
-        });
-      },
-    }),
-    [session]
-  );
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-}
-
-export function useAuth() {
-  const auth = useContext(AuthContext);
-  if (!auth) {
-    throw new Error("useAuth must be used inside AuthProvider");
-  }
-
-  return auth;
+function isSpecialAdminSession(session) {
+  return session?.user?.role === "special_admin";
 }
 
 function ProtectedRoute({ children }) {
   const { session } = useAuth();
   const location = useLocation();
+
+  if (session?.token && session.verified === false) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] px-4 text-sm font-medium text-[var(--muted)]">
+        Checking session...
+      </div>
+    );
+  }
 
   if (!session?.token) {
     return <Navigate to="/login" replace state={{ from: location }} />;
@@ -109,8 +73,11 @@ function Topbar() {
   const userMenuRef = useRef(null);
   const notifRef = useRef(null);
   const searchRef = useRef(null);
+  const isSpecialAdmin = isSpecialAdminSession(session);
 
   const displayName = session?.user?.name || "User";
+  const displayCompany = session?.user?.company?.businessName;
+  const roleLabel = isSpecialAdmin ? "Special Admin" : "Signed in";
   const initials = displayName
     .split(/\s+/)
     .map((part) => part[0])
@@ -203,41 +170,46 @@ function Topbar() {
               <div className="absolute right-0 z-20 mt-2 w-52 overflow-hidden rounded-md border border-[var(--line)] bg-white text-sm shadow-lg">
                 <div className="border-b border-[var(--line)] px-3 py-2">
                   <p className="font-medium text-[var(--ink)]">{displayName}</p>
-                  <p className="text-xs text-[var(--muted)]">Signed in</p>
+                  {displayCompany && <p className="truncate text-xs text-[var(--muted)]">{displayCompany}</p>}
+                  <p className="text-xs text-[var(--muted)]">{roleLabel}</p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUserMenuOpen(false);
-                    navigate("/profile");
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-[var(--ink)] hover:bg-slate-50"
-                >
-                  <UserCog size={15} />
-                  Edit Profile
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUserMenuOpen(false);
-                    navigate("/settings");
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-[var(--ink)] hover:bg-slate-50"
-                >
-                  <SettingsIcon size={15} />
-                  Settings
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUserMenuOpen(false);
-                    navigate("/billing");
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-[var(--ink)] hover:bg-slate-50"
-                >
-                  <CreditCard size={15} />
-                  Billing
-                </button>
+                {!isSpecialAdmin && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        navigate("/profile");
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-[var(--ink)] hover:bg-slate-50"
+                    >
+                      <UserCog size={15} />
+                      Edit Profile
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        navigate("/settings");
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-[var(--ink)] hover:bg-slate-50"
+                    >
+                      <SettingsIcon size={15} />
+                      Settings
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        navigate("/billing");
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-[var(--ink)] hover:bg-slate-50"
+                    >
+                      <CreditCard size={15} />
+                      Billing
+                    </button>
+                  </>
+                )}
                 <div className="border-t border-[var(--line)]">
                   <button
                     type="button"
@@ -256,26 +228,76 @@ function Topbar() {
 
       <nav className="border-t border-white/10">
         <div className="mx-auto max-w-[1400px] px-4 sm:px-6">
-          <MegaMenu sections={menu} />
+          {isSpecialAdmin ? (
+            <div className="flex flex-wrap items-center gap-1">
+              {specialAdminTabs.map(({ label, to, icon: Icon }) => (
+                <NavLink
+                  key={label}
+                  to={to}
+                  className={({ isActive }) =>
+                    `flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
+                      isActive ? "border-[var(--primary)] text-white" : "border-transparent text-white/70 hover:text-white"
+                    }`
+                  }
+                >
+                  <Icon size={15} />
+                  {label}
+                </NavLink>
+              ))}
+            </div>
+          ) : (
+            <MegaMenu sections={menu} />
+          )}
         </div>
       </nav>
     </header>
   );
 }
 
+function BusinessDataProviders({ storageScope, children }) {
+  const { session } = useAuth();
+
+  return (
+    <MasterDataProvider storageScope={storageScope} token={session?.token}>
+      <PurchaseDataProvider storageScope={storageScope}>
+        <StockDataProvider storageScope={storageScope}>
+          <ManufacturingDataProvider storageScope={storageScope}>
+            <SalesDataProvider storageScope={storageScope}>
+              <ReportConfigProvider storageScope={storageScope}>{children}</ReportConfigProvider>
+            </SalesDataProvider>
+          </ManufacturingDataProvider>
+        </StockDataProvider>
+      </PurchaseDataProvider>
+    </MasterDataProvider>
+  );
+}
+
 function Shell() {
-  const location = useLocation();
+  const { session } = useAuth();
+  const isSpecialAdmin = isSpecialAdminSession(session);
+  const companyScope = session?.user?.tenantId || session?.user?.company?._id || session?.user?.id;
 
   return (
     <div className="min-h-screen">
       <Topbar />
       <main className="mx-auto max-w-[1400px] px-4 py-5 sm:px-6">
-        <div key={location.pathname} className="route-transition">
-          <Routes>
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/profile" element={<EditProfile />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/billing" element={<Billing />} />
+        <div className="route-transition">
+          {isSpecialAdmin ? (
+            <SpecialAdminDataProvider token={session?.token}>
+              <Routes>
+                <Route path="/dashboard" element={<SpecialAdminDashboard />} />
+                <Route path="/company" element={<SpecialAdminCompany />} />
+                <Route path="/payment" element={<SpecialAdminPayment />} />
+                <Route path="*" element={<Navigate to="/dashboard" replace />} />
+              </Routes>
+            </SpecialAdminDataProvider>
+          ) : (
+            <BusinessDataProviders storageScope={companyScope}>
+              <Routes>
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/profile" element={<EditProfile />} />
+                <Route path="/settings" element={<Settings />} />
+                <Route path="/billing" element={<Billing />} />
             <Route path="/master-management" element={<MasterManagementHome />} />
             <Route path="/master-management/:entity" element={<MasterManagementListPage />} />
             <Route path="/master-management/:entity/new" element={<MasterManagementFormPage mode="create" />} />
@@ -383,8 +405,10 @@ function Shell() {
             <Route path="/sales/sales-return/:id/view" element={<SalesFormPage entityKey="sales-return" mode="view" />} />
 
             <Route path="/:sectionSlug/:itemSlug" element={<Placeholder />} />
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
+                <Route path="*" element={<Navigate to="/dashboard" replace />} />
+              </Routes>
+            </BusinessDataProviders>
+          )}
         </div>
       </main>
     </div>
@@ -394,32 +418,20 @@ function Shell() {
 export default function App() {
   return (
     <ToastProvider>
-      <MasterDataProvider>
-        <PurchaseDataProvider>
-          <StockDataProvider>
-            <ManufacturingDataProvider>
-              <SalesDataProvider>
-                <ReportConfigProvider>
-                <AuthProvider>
-                  <Routes>
-                    <Route path="/" element={<Navigate to="/login" replace />} />
-                    <Route path="/login" element={<Login />} />
-                    <Route
-                      path="/*"
-                      element={
-                        <ProtectedRoute>
-                          <Shell />
-                        </ProtectedRoute>
-                      }
-                    />
-                  </Routes>
-                </AuthProvider>
-                </ReportConfigProvider>
-              </SalesDataProvider>
-            </ManufacturingDataProvider>
-          </StockDataProvider>
-        </PurchaseDataProvider>
-      </MasterDataProvider>
+      <AuthProvider>
+        <Routes>
+          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="/login" element={<Login />} />
+          <Route
+            path="/*"
+            element={
+              <ProtectedRoute>
+                <Shell />
+              </ProtectedRoute>
+            }
+          />
+        </Routes>
+      </AuthProvider>
     </ToastProvider>
   );
 }

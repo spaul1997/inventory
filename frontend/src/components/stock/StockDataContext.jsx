@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useMemo } from "react";
 import {
   stockEntities,
   initialBalances,
@@ -6,6 +6,7 @@ import {
   initialBatches,
 } from "../../data/stockManagement.js";
 import { useMasterData } from "../master/MasterDataContext.jsx";
+import { useScopedState } from "../../lib/scopedStorage.js";
 
 const StockDataContext = createContext(null);
 
@@ -19,12 +20,12 @@ function initialEntityState() {
 
 let movementCounter = initialMovements.length;
 
-export function StockDataProvider({ children }) {
+export function StockDataProvider({ children, storageScope }) {
   const masterData = useMasterData();
-  const [data, setData] = useState(initialEntityState);
-  const [balances, setBalances] = useState(initialBalances);
-  const [movements, setMovements] = useState(initialMovements);
-  const [batches] = useState(initialBatches);
+  const [data, setData] = useScopedState(storageScope, "stock-data", initialEntityState);
+  const [balances, setBalances] = useScopedState(storageScope, "stock-balances", () => initialBalances);
+  const [movements, setMovements] = useScopedState(storageScope, "stock-movements", () => initialMovements);
+  const [batches] = useScopedState(storageScope, "stock-batches", () => initialBatches);
 
   const getRows = useCallback((entityKey) => data[entityKey] || [], [data]);
   const getRecord = useCallback((entityKey, id) => (data[entityKey] || []).find((row) => row.id === id), [data]);

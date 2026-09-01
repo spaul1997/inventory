@@ -1,6 +1,7 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useMemo } from "react";
 import { salesEntities } from "../../data/sales/entities.js";
 import { computeOrderTotals, today } from "../../data/sales/shared.js";
+import { useScopedState } from "../../lib/scopedStorage.js";
 import { useMasterData } from "../master/MasterDataContext.jsx";
 
 const SalesDataContext = createContext(null);
@@ -43,10 +44,10 @@ function initialReservedQty() {
   return {};
 }
 
-export function SalesDataProvider({ children }) {
+export function SalesDataProvider({ children, storageScope }) {
   const masterData = useMasterData();
-  const [data, setData] = useState(initialEntityState);
-  const [reservedQty, setReservedQty] = useState(initialReservedQty);
+  const [data, setData] = useScopedState(storageScope, "sales-data", initialEntityState);
+  const [reservedQty, setReservedQty] = useScopedState(storageScope, "sales-reserved-qty", initialReservedQty);
 
   const getRows = useCallback((entityKey) => data[entityKey] || [], [data]);
   const getRecord = useCallback((entityKey, id) => (data[entityKey] || []).find((row) => keyOf(row) === id), [data]);

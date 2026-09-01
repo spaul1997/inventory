@@ -12,14 +12,20 @@ const productSchema = new mongoose.Schema(
     storeId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Store",
-      required: true,
+      default: null,
       index: true,
+    },
+
+    code: {
+      type: String,
+      required: true,
+      trim: true,
     },
 
     productType: {
       type: String,
-      enum: ["general", "medicine"],
-      default: "general",
+      enum: ["Finished Goods", "Semi-Finished Goods", "Trading Item", "general", "medicine"],
+      default: "Trading Item",
     },
 
     name: {
@@ -43,13 +49,160 @@ const productSchema = new mongoose.Schema(
     categoryId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",
-      required: true,
+      default: null,
     },
 
     unitId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Unit",
-      required: true,
+      default: null,
+    },
+
+    shortName: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    category: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    subCategory: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    brand: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    modelNumber: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    productSize: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    color: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    material: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    grade: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    weight: {
+      type: Number,
+      default: 0,
+    },
+
+    length: {
+      type: Number,
+      default: 0,
+    },
+
+    width: {
+      type: Number,
+      default: 0,
+    },
+
+    thickness: {
+      type: Number,
+      default: 0,
+    },
+
+    specification: {
+      type: String,
+      default: "",
+    },
+
+    serialTracking: {
+      type: Boolean,
+      default: false,
+    },
+
+    batchTracking: {
+      type: Boolean,
+      default: false,
+    },
+
+    expiryTracking: {
+      type: Boolean,
+      default: false,
+    },
+
+    baseUnit: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    purchaseUnit: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    salesUnit: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    conversionFactor: {
+      type: Number,
+      default: 0,
+    },
+
+    minStock: {
+      type: Number,
+      default: 0,
+    },
+
+    maxStock: {
+      type: Number,
+      default: 0,
+    },
+
+    reorderLevel: {
+      type: Number,
+      default: 0,
+    },
+
+    safetyStock: {
+      type: Number,
+      default: 0,
+    },
+
+    openingQty: {
+      type: Number,
+      default: 0,
+    },
+
+    openingValue: {
+      type: Number,
+      default: 0,
     },
 
     purchasePrice: {
@@ -82,6 +235,21 @@ const productSchema = new mongoose.Schema(
       default: 0,
     },
 
+    standardCost: {
+      type: Number,
+      default: 0,
+    },
+
+    wholesalePrice: {
+      type: Number,
+      default: 0,
+    },
+
+    discount: {
+      type: Number,
+      default: 0,
+    },
+
     hsnCode: {
       type: String,
       default: "",
@@ -93,6 +261,70 @@ const productSchema = new mongoose.Schema(
     },
 
     image: {
+      type: String,
+      default: "",
+    },
+
+    manufactured: {
+      type: Boolean,
+      default: false,
+    },
+
+    defaultBom: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    leadTime: {
+      type: Number,
+      default: 0,
+    },
+
+    productionCost: {
+      type: Number,
+      default: 0,
+    },
+
+    bomRequired: {
+      type: Boolean,
+      default: false,
+    },
+
+    qualityInspection: {
+      type: Boolean,
+      default: false,
+    },
+
+    defaultWarehouse: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    defaultLocation: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    storageType: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    internalNotes: {
+      type: String,
+      default: "",
+    },
+
+    remarks: {
+      type: String,
+      default: "",
+    },
+
+    attachment: {
       type: String,
       default: "",
     },
@@ -142,8 +374,8 @@ const productSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["active", "inactive"],
-      default: "active",
+      enum: ["Active", "Inactive", "Draft", "Low Stock", "active", "inactive"],
+      default: "Active",
     },
 
     createdBy: {
@@ -160,8 +392,13 @@ productSchema.index({ tenantId: 1, storeId: 1, sku: 1 });
 productSchema.index({ tenantId: 1, storeId: 1, barcode: 1 });
 productSchema.index({ tenantId: 1, storeId: 1, productType: 1 });
 productSchema.index({ tenantId: 1, storeId: 1, currentStock: 1 });
+productSchema.index(
+  { tenantId: 1, code: 1 },
+  { unique: true, partialFilterExpression: { code: { $type: "string" } } }
+);
 productSchema.index({
   name: "text",
+  code: "text",
   sku: "text",
   barcode: "text",
   "medicineDetails.genericName": "text",

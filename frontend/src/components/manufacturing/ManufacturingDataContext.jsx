@@ -1,5 +1,6 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useMemo } from "react";
 import { manufacturingEntities } from "../../data/manufacturing/entities.js";
+import { useScopedState } from "../../lib/scopedStorage.js";
 import { useMasterData } from "../master/MasterDataContext.jsx";
 import { useStockData } from "../stock/StockDataContext.jsx";
 
@@ -33,11 +34,11 @@ function initialFgBalances() {
   return balances;
 }
 
-export function ManufacturingDataProvider({ children }) {
+export function ManufacturingDataProvider({ children, storageScope }) {
   const masterData = useMasterData();
   const stockData = useStockData();
-  const [data, setData] = useState(initialEntityState);
-  const [fgBalances, setFgBalances] = useState(initialFgBalances);
+  const [data, setData] = useScopedState(storageScope, "manufacturing-data", initialEntityState);
+  const [fgBalances, setFgBalances] = useScopedState(storageScope, "manufacturing-fg-balances", initialFgBalances);
 
   const getRows = useCallback((entityKey) => data[entityKey] || [], [data]);
   const getRecord = useCallback((entityKey, id) => (data[entityKey] || []).find((row) => keyOf(row) === id), [data]);

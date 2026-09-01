@@ -10,15 +10,17 @@ import {
   Layers,
   Lock,
   LogIn,
+  Mail,
   PackageCheck,
   PackagePlus,
+  Phone,
   ScanBarcode,
   ShieldCheck,
   TrendingUp,
   Truck,
   Warehouse,
 } from "lucide-react";
-import { useAuth } from "../App.jsx";
+import { useAuth } from "../stores/AuthStore.jsx";
 
 const highlights = [
   { icon: PackageCheck, text: "Real-time stock across every store" },
@@ -62,8 +64,43 @@ function IconPattern() {
   );
 }
 
+function getLoginMeta(value) {
+  const loginId = value.trim();
+  const phoneDigits = loginId.replace(/\D/g, "");
+
+  if (loginId.includes("@")) {
+    return {
+      icon: Mail,
+      label: "Email address",
+      placeholder: "you@company.com",
+    };
+  }
+
+  if (phoneDigits.length >= 7 && /^[+\d\s()-]+$/.test(loginId)) {
+    return {
+      icon: Phone,
+      label: "Phone number",
+      placeholder: "+91 99999 99999",
+    };
+  }
+
+  if (loginId) {
+    return {
+      icon: KeyRound,
+      label: "Employee code",
+      placeholder: "EMP001",
+    };
+  }
+
+  return {
+    icon: KeyRound,
+    label: "Employee code, email, or phone",
+    placeholder: "EMP001, you@company.com, or phone number",
+  };
+}
+
 export default function Login() {
-  const { login, session } = useAuth();
+  const { signIn, session } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [showPassword, setShowPassword] = useState(false);
@@ -74,6 +111,8 @@ export default function Login() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const redirectTo = location.state?.from?.pathname || "/dashboard";
+  const loginMeta = getLoginMeta(loginId);
+  const LoginIcon = loginMeta.icon;
 
   useEffect(() => {
     if (session?.token) {
@@ -81,25 +120,26 @@ export default function Login() {
     }
   }, [navigate, redirectTo, session?.token]);
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
     setError("");
+    const username = loginId.trim();
 
-    if (!loginId.trim() || !password) {
-      setError("Employee code, email, or mobile and password are required.");
+    if (!username || !password) {
+      setError("Employee code, email, or phone and password are required.");
       return;
     }
 
     setIsSubmitting(true);
 
-    login(
-      {
-        token: `demo-${Date.now()}`,
-        user: { name: loginId.trim() },
-      },
-      remember
-    );
-    navigate(redirectTo, { replace: true });
+    try {
+      await signIn({ username, password }, remember);
+      navigate(redirectTo, { replace: true });
+    } catch (err) {
+      setError(err.message || "Unable to sign in. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -153,15 +193,15 @@ export default function Login() {
           <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
             <div>
               <label htmlFor="loginId" className="mb-1.5 block text-sm font-medium text-[var(--ink)]">
-                Employee code, email, or mobile
+                {loginMeta.label}
               </label>
               <div className="relative">
-                <KeyRound size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]" />
+                <LoginIcon size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]" />
                 <input
                   id="loginId"
                   type="text"
                   autoComplete="username"
-                  placeholder="EMP001, you@company.com, or mobile number"
+                  placeholder={loginMeta.placeholder}
                   value={loginId}
                   onChange={(event) => setLoginId(event.target.value)}
                   className="w-full rounded-md border border-[var(--line)] bg-white py-2.5 pl-9 pr-3 text-sm text-[var(--ink)] outline-none placeholder:text-slate-400 focus:border-[var(--primary)] focus:ring-2 focus:ring-blue-100"

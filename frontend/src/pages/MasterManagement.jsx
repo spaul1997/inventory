@@ -3,6 +3,7 @@ import { Link, Navigate, useParams } from "react-router-dom";
 import { ArrowRight, Boxes, MapPin, Package, Ruler, Tags, Truck, Warehouse } from "lucide-react";
 import { masterEntities, masterEntityOrder } from "../data/masterManagement.js";
 import { MasterSidebar } from "../components/master/MasterSidebar.jsx";
+import { useMasterData } from "../components/master/MasterDataContext.jsx";
 import { MasterList } from "../components/master/MasterList.jsx";
 import { MasterForm } from "../components/master/MasterForm.jsx";
 
@@ -18,6 +19,8 @@ function MasterLayout({ children }) {
 }
 
 export function MasterManagementHome() {
+  const { getRows } = useMasterData();
+
   return (
     <MasterLayout>
       <div>
@@ -30,6 +33,7 @@ export function MasterManagementHome() {
           {masterEntityOrder.map((key) => {
             const entity = masterEntities[key];
             const Icon = icons[entity.icon] || Package;
+            const rows = getRows(key);
             return (
               <div key={key} className="flex flex-col rounded-md border border-[var(--line)] bg-white p-5">
                 <div className="flex h-11 w-11 items-center justify-center rounded-md bg-blue-50 text-[var(--primary)]">
@@ -38,7 +42,7 @@ export function MasterManagementHome() {
                 <h3 className="mt-4 text-base font-semibold text-[var(--ink)]">{entity.label}</h3>
                 <p className="mt-1 text-sm text-[var(--muted)]">{entity.description}</p>
                 <p className="mt-3 text-2xl font-semibold text-[var(--ink)]">
-                  {entity.list.rows.length}
+                  {rows.length}
                   <span className="ml-1.5 text-sm font-normal text-[var(--muted)]">{entity.statLabel}</span>
                 </p>
                 <Link

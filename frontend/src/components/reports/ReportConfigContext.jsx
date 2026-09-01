@@ -1,5 +1,6 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useMemo } from "react";
 import { REPORT_KEYS } from "./reportShared.jsx";
+import { useScopedState } from "../../lib/scopedStorage.js";
 
 // Session-only config for the Manufacturing & Sales Reports module: saved
 // filter views, report schedules and a reporting-access matrix. Like every
@@ -34,10 +35,10 @@ function nextId(prefix) {
   return `${prefix}-${idCounter}`;
 }
 
-export function ReportConfigProvider({ children }) {
-  const [savedViews, setSavedViews] = useState({});
-  const [schedules, setSchedules] = useState([]);
-  const [accessMatrix, setAccessMatrix] = useState(DEFAULT_ACCESS);
+export function ReportConfigProvider({ children, storageScope }) {
+  const [savedViews, setSavedViews] = useScopedState(storageScope, "report-saved-views", () => ({}));
+  const [schedules, setSchedules] = useScopedState(storageScope, "report-schedules", () => []);
+  const [accessMatrix, setAccessMatrix] = useScopedState(storageScope, "report-access", () => DEFAULT_ACCESS);
 
   const addSavedView = useCallback((reportKey, name, filters) => {
     setSavedViews((prev) => {

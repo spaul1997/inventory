@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-const vendorSchema = new mongoose.Schema(
+const rawMaterialSchema = new mongoose.Schema(
   {
     tenantId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -34,89 +34,92 @@ const vendorSchema = new mongoose.Schema(
       trim: true,
     },
 
-    type: {
+    subCategory: {
       type: String,
       default: "",
       trim: true,
     },
 
-    website: {
+    description: {
+      type: String,
+      default: "",
+    },
+
+    grade: {
       type: String,
       default: "",
       trim: true,
     },
 
-    contact: {
+    color: {
       type: String,
       default: "",
       trim: true,
     },
 
-    designation: {
+    weight: {
+      type: Number,
+      default: 0,
+    },
+
+    dimensions: {
       type: String,
       default: "",
       trim: true,
     },
 
-    phone: {
+    specification: {
       type: String,
       default: "",
     },
 
-    email: {
-      type: String,
-      lowercase: true,
-      trim: true,
-      default: "",
+    batchTracking: {
+      type: Boolean,
+      default: false,
     },
 
-    address: {
-      type: String,
-      default: "",
+    expiryTracking: {
+      type: Boolean,
+      default: false,
     },
 
-    gstNumber: {
-      type: String,
-      default: "",
-    },
-
-    panNumber: {
+    baseUnit: {
       type: String,
       default: "",
       trim: true,
     },
 
-    registrationNumber: {
-      type: String,
-      default: "",
-      trim: true,
+    minStock: {
+      type: Number,
+      default: 0,
     },
 
-    bankName: {
-      type: String,
-      default: "",
-      trim: true,
+    maxStock: {
+      type: Number,
+      default: 0,
     },
 
-    accountNumber: {
-      type: String,
-      default: "",
-      trim: true,
+    reorderLevel: {
+      type: Number,
+      default: 0,
     },
 
-    ifsc: {
-      type: String,
-      default: "",
-      trim: true,
+    openingQty: {
+      type: Number,
+      default: 0,
     },
 
-    accountHolder: {
-      type: String,
-      default: "",
-      trim: true,
+    openingValue: {
+      type: Number,
+      default: 0,
     },
 
-    paymentTerms: {
+    currentStock: {
+      type: Number,
+      default: 0,
+    },
+
+    preferredSupplier: {
       type: String,
       default: "",
       trim: true,
@@ -127,24 +130,49 @@ const vendorSchema = new mongoose.Schema(
       default: 0,
     },
 
-    creditLimit: {
+    moq: {
       type: Number,
       default: 0,
     },
 
-    rating: {
+    lastPurchasePrice: {
       type: Number,
       default: 0,
     },
 
-    qualityRating: {
-      type: Number,
-      default: 0,
+    qualityGrade: {
+      type: String,
+      default: "",
+      trim: true,
     },
 
-    deliveryRating: {
-      type: Number,
-      default: 0,
+    inspectionRequired: {
+      type: Boolean,
+      default: false,
+    },
+
+    certification: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    defaultWarehouse: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    defaultLocation: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    storageType: {
+      type: String,
+      default: "",
+      trim: true,
     },
 
     internalNotes: {
@@ -157,19 +185,9 @@ const vendorSchema = new mongoose.Schema(
       default: "",
     },
 
-    openingBalance: {
-      type: Number,
-      default: 0,
-    },
-
-    currentBalance: {
-      type: Number,
-      default: 0,
-    },
-
     status: {
       type: String,
-      enum: ["Active", "Inactive", "Draft", "active", "inactive"],
+      enum: ["Active", "Inactive", "Draft", "Low Stock"],
       default: "Active",
     },
 
@@ -182,13 +200,11 @@ const vendorSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-vendorSchema.index({ tenantId: 1, storeId: 1, phone: 1 });
-vendorSchema.index({ tenantId: 1, storeId: 1, name: 1 });
-vendorSchema.index(
+rawMaterialSchema.index(
   { tenantId: 1, code: 1 },
   { unique: true, partialFilterExpression: { code: { $type: "string" } } }
 );
-vendorSchema.index({ tenantId: 1, category: 1 });
-vendorSchema.index({ tenantId: 1, status: 1 });
+rawMaterialSchema.index({ tenantId: 1, category: 1 });
+rawMaterialSchema.index({ tenantId: 1, status: 1 });
 
-export default mongoose.model("Vendor", vendorSchema);
+export default mongoose.model("RawMaterial", rawMaterialSchema);

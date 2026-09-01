@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, Save, UserCog } from "lucide-react";
-import { useAuth } from "../App.jsx";
+import { useAuth } from "../stores/AuthStore.jsx";
 import { useToast } from "../components/Toast.jsx";
 import { Panel } from "../components/ui.jsx";
 

@@ -32,6 +32,26 @@ const summaryTones = {
   accent: "text-[var(--navy)] bg-slate-100",
 };
 
+function optionLabel(row) {
+  return row.name || row.storeName || row.code || "";
+}
+
+function uniqueOptions(values) {
+  return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
+function resolveFilterOptions(filter, getRows) {
+  if (filter.optionsFrom === "warehouse") {
+    return uniqueOptions(
+      getRows("warehouse")
+        .filter((row) => row.status !== "Inactive")
+        .map(optionLabel)
+    );
+  }
+
+  return filter.options || [];
+}
+
 function toCsv(columns, rows) {
   const header = columns.map((col) => col.label).join(",");
   const lines = rows.map((row) =>
@@ -48,7 +68,7 @@ function toCsv(columns, rows) {
 
 export function MasterList({ entityKey }) {
   const entity = masterEntities[entityKey];
-  const { getRows, updateRow } = useMasterData();
+  const { getRows, updateRow, loading: dataLoading = {}, error: dataError = {} } = useMasterData();
   const showToast = useToast();
   const navigate = useNavigate();
   const rows = getRows(entityKey);
@@ -84,6 +104,9 @@ export function MasterList({ entityKey }) {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  const isLoading = loading || Boolean(dataLoading[entityKey]);
+  const loadError = dataError[entityKey] || "";
 
   const filteredRows = useMemo(() => {
     let result = rows;
@@ -130,11 +153,15 @@ export function MasterList({ entityKey }) {
     navigate(`/master-management/${entityKey}/new`, { state: { duplicateFrom: row } });
   }
 
-  function confirmDeactivate() {
+  async function confirmDeactivate() {
     if (!confirmTarget) return;
-    updateRow(entityKey, confirmTarget.code, { status: "Inactive" });
-    showToast(`${confirmTarget.name || confirmTarget.code} marked as Inactive.`);
-    setConfirmTarget(null);
+    try {
+      await updateRow(entityKey, confirmTarget.code, { status: "Inactive" });
+      showToast(`${confirmTarget.name || confirmTarget.code} marked as Inactive.`);
+      setConfirmTarget(null);
+    } catch (err) {
+      showToast(err.message || "Unable to deactivate record.");
+    }
   }
 
   return (
@@ -182,6 +209,12 @@ export function MasterList({ entityKey }) {
         ))}
       </div>
 
+      {loadError && (
+        <div className="mt-5 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+          {loadError}
+        </div>
+      )}
+
       <div className="mt-5 rounded-md border border-[var(--line)] bg-white">
         <div className="flex flex-wrap items-center gap-3 border-b border-[var(--line)] p-3">
           <div className="relative flex-1 min-w-[220px]">
@@ -208,7 +241,7 @@ export function MasterList({ entityKey }) {
               className="rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm text-[var(--ink)] outline-none focus:border-[var(--primary)]"
             >
               <option value="">{filter.label}: All</option>
-              {filter.options.map((option) => (
+              {resolveFilterOptions(filter, getRows).map((option) => (
                 <option key={option} value={option}>
                   {option}
                 </option>
@@ -237,7 +270,7 @@ export function MasterList({ entityKey }) {
               </tr>
             </thead>
             <tbody>
-              {loading &&
+              {isLoading &&
                 Array.from({ length: 4 }).map((_, i) => (
                   <tr key={i} className="border-b border-slate-100">
                     {entity.list.columns.map((col) => (
@@ -249,7 +282,7 @@ export function MasterList({ entityKey }) {
                   </tr>
                 ))}
 
-              {!loading && pageRows.length === 0 && (
+              {!isLoading && pageRows.length === 0 && (
                 <tr>
                   <td colSpan={entity.list.columns.length + 1} className="px-3 py-12 text-center">
                     <div className="flex flex-col items-center gap-2 text-[var(--muted)]">
@@ -271,7 +304,7 @@ export function MasterList({ entityKey }) {
                 </tr>
               )}
 
-              {!loading &&
+              {!isLoading &&
                 pageRows.map((row) => (
                   <tr key={row.code} className="border-b border-slate-100 hover:bg-slate-50/60">
                     {entity.list.columns.map((col) => (
@@ -353,7 +386,7 @@ export function MasterList({ entityKey }) {
           </table>
         </div>
 
-        {!loading && filteredRows.length > 0 && (
+        {!isLoading && filteredRows.length > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--line)] px-4 py-3 text-sm text-[var(--muted)]">
             <span>
               Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredRows.length)} of {filteredRows.length}

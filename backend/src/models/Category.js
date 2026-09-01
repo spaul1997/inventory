@@ -12,8 +12,14 @@ const categorySchema = new mongoose.Schema(
     storeId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Store",
-      required: true,
+      default: null,
       index: true,
+    },
+
+    code: {
+      type: String,
+      required: true,
+      trim: true,
     },
 
     name: {
@@ -22,15 +28,37 @@ const categorySchema = new mongoose.Schema(
       trim: true,
     },
 
+    parent: {
+      type: String,
+      default: "-",
+      trim: true,
+    },
+
+    type: {
+      type: String,
+      enum: ["Product", "Material"],
+      required: true,
+    },
+
     description: {
       type: String,
       default: "",
     },
 
+    displayOrder: {
+      type: Number,
+      default: 0,
+    },
+
+    itemCount: {
+      type: Number,
+      default: 0,
+    },
+
     status: {
       type: String,
-      enum: ["active", "inactive"],
-      default: "active",
+      enum: ["Active", "Inactive", "Draft", "active", "inactive"],
+      default: "Active",
     },
 
     createdBy: {
@@ -42,6 +70,12 @@ const categorySchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-categorySchema.index({ tenantId: 1, storeId: 1, name: 1 }, { unique: true });
+categorySchema.index({ tenantId: 1, storeId: 1, name: 1 });
+categorySchema.index(
+  { tenantId: 1, code: 1 },
+  { unique: true, partialFilterExpression: { code: { $type: "string" } } }
+);
+categorySchema.index({ tenantId: 1, type: 1 });
+categorySchema.index({ tenantId: 1, status: 1 });
 
 export default mongoose.model("Category", categorySchema);
