@@ -21,6 +21,18 @@ export const masterApiEntities = {
     path: "/master/suppliers",
     label: "suppliers",
   },
+  department: {
+    path: "/master/departments",
+    label: "departments",
+  },
+  "warehouse-type": {
+    path: "/master/warehouse-types",
+    label: "warehouse types",
+  },
+  "location-type": {
+    path: "/master/location-types",
+    label: "location types",
+  },
   warehouse: {
     path: "/master/warehouses",
     label: "warehouses",

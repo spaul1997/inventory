@@ -1,10 +1,26 @@
 // Config-driven data for the Master Management module: list screens, tabbed
-// entry forms, and realistic sample data for all 7 master entities. One
+// entry forms, and realistic sample data for all master entities. One
 // generic MasterList + MasterForm renderer consumes this for every entity so
 // the seven screens share a single, consistent design system.
 
-const productType = ["Finished Goods", "Semi-Finished Goods", "Trading Item"];
+const productType = [
+  "Raw Material",
+  "Finished Goods",
+  "Consumables",
+  "Spare Parts & Components",
+  "Equipment & Assets",
+  "Services",
+  "Other / Miscellaneous",
+];
+const unitType = ["Count", "Weight", "Length", "Area", "Volume", "Time", "Packaging"];
 const statusOptions = ["Active", "Inactive", "Draft"];
+const isNonSupplierCategory = (row) => row.type !== "Supplier";
+const isRootCategory = (row) => {
+  const parent = String(row.parent || "").trim();
+  return !parent || parent === "-" || parent === "\u2014";
+};
+const isNonSupplierRootCategory = (row) => isNonSupplierCategory(row) && isRootCategory(row);
+const isNonSupplierSubCategory = (row, values) => isNonSupplierCategory(row) && Boolean(values.category) && row.parent === values.category;
 
 export const masterEntities = {
   "product-item": {
@@ -27,10 +43,10 @@ export const masterEntities = {
         warehouse: values.defaultWarehouse,
       }),
       filters: [
-        { key: "category", label: "Category", options: ["Fasteners", "Bearings", "Hydraulics", "Electricals", "Sub-Assembly", "Seals"] },
+        { key: "category", label: "Category", optionsFrom: "category", optionsFilter: isNonSupplierRootCategory },
         { key: "productType", label: "Product Type", options: productType },
         { key: "status", label: "Status", options: ["Active", "Inactive", "Low Stock"] },
-        { key: "warehouse", label: "Warehouse", options: ["Main Manufacturing Plant", "Finished Goods Warehouse", "Regional Distribution Hub"] },
+        { key: "warehouse", label: "Warehouse", optionsFrom: "warehouse" },
       ],
       summary: [
         { label: "Total Products", tone: "primary", compute: (rows) => rows.length },
@@ -48,13 +64,13 @@ export const masterEntities = {
         { key: "status", label: "Status", badge: true },
       ],
       rows: [
-        { code: "ITM-1001", name: "Steel Hex Bolt M8x40", category: "Fasteners", productType: "Trading Item", unit: "PCS", stock: 12500, price: 4.5, warehouse: "Main Manufacturing Plant", status: "Active", hsnCode: "7318", gst: 18 },
-        { code: "ITM-1002", name: "Industrial Ball Bearing 6204", category: "Bearings", productType: "Trading Item", unit: "PCS", stock: 340, price: 185, warehouse: "Main Manufacturing Plant", status: "Active", hsnCode: "8482", gst: 18 },
+        { code: "ITM-1001", name: "Steel Hex Bolt M8x40", category: "Fasteners", productType: "Spare Parts & Components", unit: "PCS", stock: 12500, price: 4.5, warehouse: "Main Manufacturing Plant", status: "Active", hsnCode: "7318", gst: 18 },
+        { code: "ITM-1002", name: "Industrial Ball Bearing 6204", category: "Bearings", productType: "Spare Parts & Components", unit: "PCS", stock: 340, price: 185, warehouse: "Main Manufacturing Plant", status: "Active", hsnCode: "8482", gst: 18 },
         { code: "ITM-1003", name: "Hydraulic Cylinder 50mm", category: "Hydraulics", productType: "Finished Goods", unit: "PCS", stock: 28, price: 4200, warehouse: "Finished Goods Warehouse", status: "Low Stock", hsnCode: "8412", gst: 18 },
-        { code: "ITM-1004", name: "PVC Conduit Pipe 25mm", category: "Electricals", productType: "Trading Item", unit: "MTR", stock: 5600, price: 22, warehouse: "Regional Distribution Hub", status: "Active", hsnCode: "3917", gst: 18 },
-        { code: "ITM-1005", name: "Aluminium Sheet 4x8 ft", category: "Fasteners", productType: "Semi-Finished Goods", unit: "PCS", stock: 0, price: 1850, warehouse: "Main Manufacturing Plant", status: "Inactive", hsnCode: "7606", gst: 18 },
+        { code: "ITM-1004", name: "PVC Conduit Pipe 25mm", category: "Electricals", productType: "Consumables", unit: "MTR", stock: 5600, price: 22, warehouse: "Regional Distribution Hub", status: "Active", hsnCode: "3917", gst: 18 },
+        { code: "ITM-1005", name: "Aluminium Sheet 4x8 ft", category: "Fasteners", productType: "Raw Material", unit: "PCS", stock: 0, price: 1850, warehouse: "Main Manufacturing Plant", status: "Inactive", hsnCode: "7606", gst: 18 },
         { code: "ITM-1006", name: "Cooling Fan Assembly", category: "Sub-Assembly", productType: "Finished Goods", unit: "PCS", stock: 85, price: 950, warehouse: "Finished Goods Warehouse", status: "Active", hsnCode: "8414", gst: 18 },
-        { code: "ITM-1007", name: "Rubber Gasket Ring 40mm", category: "Seals", productType: "Trading Item", unit: "PCS", stock: 15, price: 12, warehouse: "Main Manufacturing Plant", status: "Low Stock", hsnCode: "4016", gst: 12 },
+        { code: "ITM-1007", name: "Rubber Gasket Ring 40mm", category: "Seals", productType: "Spare Parts & Components", unit: "PCS", stock: 15, price: 12, warehouse: "Main Manufacturing Plant", status: "Low Stock", hsnCode: "4016", gst: 12 },
         { code: "ITM-1008", name: "Control Panel Enclosure", category: "Electricals", productType: "Finished Goods", unit: "PCS", stock: 62, price: 3200, warehouse: "Finished Goods Warehouse", status: "Active", hsnCode: "8537", gst: 18 },
       ],
     },
@@ -63,15 +79,37 @@ export const masterEntities = {
         {
           key: "basic",
           label: "Basic Information",
+          columns: 4,
           fields: [
             { key: "code", label: "Item Code", type: "text", autoGenerated: true, readOnly: true, placeholder: "Auto generated after save" },
             { key: "name", label: "Product Name", type: "text", required: true, placeholder: "e.g. Hydraulic Cylinder 63mm" },
             { key: "shortName", label: "Short Name", type: "text" },
-            { key: "category", label: "Category", type: "select", required: true, options: ["Fasteners", "Bearings", "Hydraulics", "Electricals", "Sub-Assembly", "Seals"] },
-            { key: "subCategory", label: "Sub Category", type: "text" },
+            {
+              key: "category",
+              label: "Category",
+              type: "select",
+              required: true,
+              searchable: true,
+              optionsFrom: "category",
+              optionsFilter: isNonSupplierRootCategory,
+              clearOnChange: ["subCategory"],
+            },
+            {
+              key: "subCategory",
+              label: "Sub Category",
+              type: "select",
+              searchable: true,
+              optionsFrom: "category",
+              optionsFilter: isNonSupplierSubCategory,
+            },
             { key: "productType", label: "Product Type", type: "select", required: true, options: productType },
+            { key: "baseUnit", label: "Base Unit", type: "select", required: true, searchable: true, optionsFrom: "unit" },
+            { key: "manufactured", label: "Manufactured?", type: "toggle" },
             { key: "brand", label: "Brand", type: "text" },
-            { key: "description", label: "Description", type: "textarea", span: "full" },
+            { key: "description", label: "Description", type: "textarea", spanColumns: 2 },
+            { key: "remarks", label: "Remarks", type: "textarea", spanColumns: 2 },
+            { key: "attachment", label: "Attachment Upload", type: "file" },
+            { key: "status", label: "Status", type: "select", options: statusOptions },
           ],
         },
         {
@@ -99,9 +137,8 @@ export const masterEntities = {
           key: "inventory",
           label: "Inventory",
           fields: [
-            { key: "baseUnit", label: "Base Unit", type: "select", required: true, options: ["PCS", "KG", "MTR", "LTR", "BOX"] },
-            { key: "purchaseUnit", label: "Purchase Unit", type: "select", options: ["PCS", "KG", "MTR", "LTR", "BOX"] },
-            { key: "salesUnit", label: "Sales Unit", type: "select", options: ["PCS", "KG", "MTR", "LTR", "BOX"] },
+            { key: "purchaseUnit", label: "Purchase Unit", type: "select", searchable: true, optionsFrom: "unit" },
+            { key: "salesUnit", label: "Sales Unit", type: "select", searchable: true, optionsFrom: "unit" },
             { key: "conversionFactor", label: "Conversion Factor", type: "number" },
             { key: "minStock", label: "Minimum Stock Level", type: "number" },
             { key: "maxStock", label: "Maximum Stock Level", type: "number" },
@@ -140,7 +177,6 @@ export const masterEntities = {
           key: "manufacturing",
           label: "Manufacturing",
           fields: [
-            { key: "manufactured", label: "Manufactured?", type: "toggle" },
             { key: "defaultBom", label: "Default BOM", type: "text", placeholder: "e.g. BOM-CYL-050" },
             { key: "leadTime", label: "Production Lead Time (days)", type: "number" },
             { key: "productionCost", label: "Standard Production Cost", type: "number" },
@@ -152,19 +188,15 @@ export const masterEntities = {
           key: "storage",
           label: "Storage",
           fields: [
-            { key: "defaultWarehouse", label: "Default Warehouse", type: "select", options: ["Main Manufacturing Plant", "Raw Material Store", "Finished Goods Warehouse", "Regional Distribution Hub"] },
-            { key: "defaultLocation", label: "Default Stock Location", type: "text", placeholder: "e.g. Rack 1 Shelf 2" },
-            { key: "storageType", label: "Storage Type", type: "select", options: ["Rack", "Shelf", "Bin", "Floor", "Zone"] },
-          ],
-        },
-        {
-          key: "additional",
-          label: "Additional Information",
-          fields: [
-            { key: "internalNotes", label: "Internal Notes", type: "textarea", span: "full" },
-            { key: "remarks", label: "Remarks", type: "textarea", span: "full" },
-            { key: "attachment", label: "Attachment Upload", type: "file" },
-            { key: "status", label: "Status", type: "select", options: statusOptions },
+            { key: "defaultWarehouse", label: "Default Warehouse", type: "select", searchable: true, optionsFrom: "warehouse", clearOnChange: ["defaultLocation"] },
+            {
+              key: "defaultLocation",
+              label: "Default Stock Location",
+              type: "select",
+              searchable: true,
+              optionsFrom: "stock-location",
+              optionsFilter: (row, values) => !values.defaultWarehouse || row.warehouse === values.defaultWarehouse,
+            },
           ],
         },
       ],
@@ -188,7 +220,7 @@ export const masterEntities = {
         price: Number(values.lastPurchasePrice) || 0,
       }),
       filters: [
-        { key: "category", label: "Category", options: ["Metals", "Polymers", "Chemicals"] },
+        { key: "category", label: "Category", optionsFrom: "category", optionsFilter: isNonSupplierRootCategory },
         { key: "status", label: "Status", options: ["Active", "Inactive", "Low Stock"] },
       ],
       summary: [
@@ -220,17 +252,44 @@ export const masterEntities = {
         {
           key: "basic",
           label: "Basic Information",
+          columns: 4,
           fields: [
             { key: "code", label: "Material Code", type: "text", autoGenerated: true, readOnly: true, placeholder: "Auto generated after save" },
             { key: "name", label: "Material Name", type: "text", required: true },
-            { key: "category", label: "Category", type: "select", required: true, options: ["Metals", "Polymers", "Chemicals"] },
-            { key: "subCategory", label: "Sub Category", type: "text" },
-            { key: "description", label: "Description", type: "textarea", span: "full" },
+            {
+              key: "category",
+              label: "Category",
+              type: "select",
+              required: true,
+              searchable: true,
+              optionsFrom: "category",
+              optionsFilter: isNonSupplierRootCategory,
+              clearOnChange: ["subCategory"],
+            },
+            {
+              key: "subCategory",
+              label: "Sub Category",
+              type: "select",
+              searchable: true,
+              optionsFrom: "category",
+              optionsFilter: isNonSupplierSubCategory,
+            },
+            { key: "baseUnit", label: "Base Unit", type: "select", required: true, searchable: true, optionsFrom: "unit" },
+            { key: "minStock", label: "Minimum Stock Level", type: "number" },
+            { key: "maxStock", label: "Maximum Stock Level", type: "number" },
+            { key: "reorderLevel", label: "Reorder Level", type: "number" },
+            { key: "openingQty", label: "Opening Quantity", type: "number" },
+            { key: "openingValue", label: "Opening Stock Value", type: "number" },
+            { key: "status", label: "Status", type: "select", options: statusOptions },
+            { key: "attachment", label: "Attachment Upload", type: "file" },
+            { key: "description", label: "Description", type: "textarea", spanColumns: 2 },
+            { key: "internalNotes", label: "Internal Notes", type: "textarea", spanColumns: 2 },
           ],
         },
         {
           key: "specification",
           label: "Specification",
+          columns: 4,
           fields: [
             { key: "grade", label: "Grade", type: "text" },
             { key: "color", label: "Color", type: "text" },
@@ -242,20 +301,9 @@ export const masterEntities = {
           ],
         },
         {
-          key: "inventory",
-          label: "Inventory",
-          fields: [
-            { key: "baseUnit", label: "Base Unit", type: "select", required: true, options: ["KG", "MTR", "LTR", "PCS"] },
-            { key: "minStock", label: "Minimum Stock Level", type: "number" },
-            { key: "maxStock", label: "Maximum Stock Level", type: "number" },
-            { key: "reorderLevel", label: "Reorder Level", type: "number" },
-            { key: "openingQty", label: "Opening Quantity", type: "number" },
-            { key: "openingValue", label: "Opening Stock Value", type: "number" },
-          ],
-        },
-        {
           key: "purchasing",
           label: "Purchasing",
+          columns: 4,
           fields: [
             { key: "preferredSupplier", label: "Preferred Supplier", type: "text" },
             { key: "leadTime", label: "Purchase Lead Time (days)", type: "number" },
@@ -276,18 +324,15 @@ export const masterEntities = {
           key: "storage",
           label: "Storage",
           fields: [
-            { key: "defaultWarehouse", label: "Default Warehouse", type: "select", options: ["Main Manufacturing Plant", "Raw Material Store"] },
-            { key: "defaultLocation", label: "Default Stock Location", type: "text" },
-            { key: "storageType", label: "Storage Type", type: "select", options: ["Rack", "Shelf", "Bin", "Floor", "Zone"] },
-          ],
-        },
-        {
-          key: "additional",
-          label: "Additional Information",
-          fields: [
-            { key: "internalNotes", label: "Internal Notes", type: "textarea", span: "full" },
-            { key: "attachment", label: "Attachment Upload", type: "file" },
-            { key: "status", label: "Status", type: "select", options: statusOptions },
+            { key: "defaultWarehouse", label: "Default Warehouse", type: "select", searchable: true, optionsFrom: "warehouse", clearOnChange: ["defaultLocation"] },
+            {
+              key: "defaultLocation",
+              label: "Default Stock Location",
+              type: "select",
+              searchable: true,
+              optionsFrom: "stock-location",
+              optionsFilter: (row, values) => !values.defaultWarehouse || row.warehouse === values.defaultWarehouse,
+            },
           ],
         },
       ],
@@ -307,7 +352,7 @@ export const masterEntities = {
       searchKeys: ["code", "name"],
       deriveRow: () => ({ itemCount: 0 }),
       filters: [
-        { key: "type", label: "Category Type", options: ["Product", "Material"] },
+        { key: "type", label: "Category Type", options: ["Product", "Material", "Supplier"] },
         { key: "status", label: "Status", options: ["Active", "Inactive"] },
       ],
       summary: [
@@ -343,8 +388,8 @@ export const masterEntities = {
           fields: [
             { key: "code", label: "Category Code", type: "text", autoGenerated: true, readOnly: true, placeholder: "Auto generated after save" },
             { key: "name", label: "Category Name", type: "text", required: true },
-            { key: "parent", label: "Parent Category", type: "select", options: ["—", "Fasteners", "Bearings", "Hydraulics", "Electricals", "Metals", "Polymers"] },
-            { key: "type", label: "Category Type", type: "select", required: true, options: ["Product", "Material"] },
+            { key: "parent", label: "Parent Category", type: "select", searchable: true, optionsFrom: "category", prependOptions: ["-"] },
+            { key: "type", label: "Category Type", type: "select", required: true, options: ["Product", "Material", "Supplier"] },
             { key: "description", label: "Description", type: "textarea", span: "full" },
             { key: "displayOrder", label: "Display Order", type: "number" },
             { key: "status", label: "Status", type: "select", options: statusOptions },
@@ -367,7 +412,7 @@ export const masterEntities = {
       searchKeys: ["code", "name"],
       deriveRow: (values) => ({ isBase: !values.baseUnit }),
       filters: [
-        { key: "type", label: "Unit Type", options: ["Count", "Weight", "Length", "Volume"] },
+        { key: "type", label: "Unit Type", options: unitType },
         { key: "status", label: "Status", options: ["Active", "Inactive"] },
       ],
       summary: [
@@ -402,13 +447,10 @@ export const masterEntities = {
             { key: "code", label: "Unit Code", type: "text", autoGenerated: true, readOnly: true, placeholder: "Auto generated after save" },
             { key: "name", label: "Unit Name", type: "text", required: true },
             { key: "symbol", label: "Symbol", type: "text", required: true, placeholder: "e.g. PCS" },
-            { key: "type", label: "Unit Type", type: "select", required: true, options: ["Count", "Weight", "Length", "Volume"] },
+            { key: "type", label: "Unit Type", type: "select", required: true, options: unitType },
             { key: "decimalPlaces", label: "Decimal Places", type: "number" },
-            { key: "baseUnit", label: "Base Unit", type: "select", options: ["—", "Pieces", "Kilogram", "Meter", "Liter"] },
-            { key: "conversionFactor", label: "Conversion Factor", type: "number" },
-            { key: "description", label: "Description", type: "textarea", span: "full" },
             { key: "status", label: "Status", type: "select", options: statusOptions },
-            { key: "conversions", label: "Unit Conversion", type: "conversionTable", span: "full" },
+            { key: "description", label: "Description", type: "text" },
           ],
         },
       ],
@@ -427,7 +469,7 @@ export const masterEntities = {
       searchPlaceholder: "Search by supplier code, supplier name...",
       searchKeys: ["code", "name"],
       filters: [
-        { key: "category", label: "Category", options: ["Metals", "Bearings", "Hydraulics", "Polymers", "Electricals"] },
+        { key: "category", label: "Category", optionsFrom: "category", optionsFilter: (row) => row.type === "Supplier" },
         { key: "status", label: "Status", options: ["Active", "Inactive"] },
       ],
       summary: [
@@ -461,14 +503,47 @@ export const masterEntities = {
           fields: [
             { key: "code", label: "Supplier Code", type: "text", autoGenerated: true, readOnly: true, placeholder: "Auto generated after save" },
             { key: "name", label: "Supplier Name", type: "text", required: true },
-            { key: "category", label: "Category", type: "select", required: true, options: ["Metals", "Bearings", "Hydraulics", "Polymers", "Electricals"] },
-            { key: "type", label: "Supplier Type", type: "select", options: ["Manufacturer", "Distributor", "Trader"] },
+            { key: "category", label: "Category", type: "select", required: true, searchable: true, optionsFrom: "category", optionsFilter: (row) => row.type === "Supplier" },
+            {
+              key: "type",
+              label: "Supplier Type",
+              type: "select",
+              options: [
+                "Manufacturer",
+                "Distributor / Wholesaler",
+                "Dealer / Retailer / Stockist",
+                "Service Provider",
+                "Contractor / Sub-Contractor",
+                "Consultant / Professional Services",
+                "Other / Miscellaneous Supplier",
+              ],
+            },
             { key: "website", label: "Website", type: "text" },
+            {
+              key: "paymentTerms",
+              label: "Payment Terms",
+              type: "select",
+              options: [
+                "Advance Payment",
+                "Immediate Payment",
+                "Net 15 Days",
+                "Net 30 Days",
+                "Net 45 Days",
+                "Net 60 Days",
+                "Custom Terms",
+              ],
+            },
+            { key: "leadTime", label: "Standard Lead Time (days)", type: "number" },
+            { key: "creditLimit", label: "Credit Limit", type: "number" },
+            { key: "status", label: "Status", type: "select", options: statusOptions },
+            { key: "attachment", label: "Attachment Upload", type: "file" },
+            { key: "internalNotes", label: "Internal Notes", type: "textarea", span: "full" },
           ],
         },
         {
           key: "contact",
           label: "Contact",
+          columns: 4,
           fields: [
             { key: "contact", label: "Contact Person", type: "text", required: true },
             { key: "designation", label: "Designation", type: "text" },
@@ -493,16 +568,8 @@ export const masterEntities = {
             { key: "bankName", label: "Bank Name", type: "text" },
             { key: "accountNumber", label: "Account Number", type: "text" },
             { key: "ifsc", label: "IFSC Code", type: "text" },
+            { key: "branchName", label: "Branch Name", type: "text" },
             { key: "accountHolder", label: "Account Holder Name", type: "text" },
-          ],
-        },
-        {
-          key: "purchasing",
-          label: "Purchasing",
-          fields: [
-            { key: "paymentTerms", label: "Payment Terms", type: "select", options: ["Net 15", "Net 30", "Net 45", "Advance"] },
-            { key: "leadTime", label: "Standard Lead Time (days)", type: "number" },
-            { key: "creditLimit", label: "Credit Limit", type: "number" },
           ],
         },
         {
@@ -514,12 +581,103 @@ export const masterEntities = {
             { key: "deliveryRating", label: "Delivery Rating", type: "number" },
           ],
         },
+      ],
+    },
+  },
+
+  department: {
+    label: "Department",
+    singular: "Department",
+    icon: "Building2",
+    description: "Manage company department master data",
+    statLabel: "Total Departments",
+    autoGeneratedCode: true,
+    list: {
+      subtitle: "Manage departments used across company workflows.",
+      searchPlaceholder: "Search by department code, department name...",
+      searchKeys: ["code", "name"],
+      filters: [
+        { key: "status", label: "Status", options: ["Active", "Inactive"] },
+      ],
+      summary: [
+        { label: "Total Departments", tone: "primary", compute: (rows) => rows.length },
+        { label: "Active Departments", tone: "success", compute: (rows) => rows.filter((r) => r.status === "Active").length },
+        { label: "Inactive Departments", tone: "muted", compute: (rows) => rows.filter((r) => r.status === "Inactive").length },
+        { label: "Draft Departments", tone: "accent", compute: (rows) => rows.filter((r) => r.status === "Draft").length },
+      ],
+      columns: [
+        { key: "code", label: "Department Code", mono: true },
+        { key: "name", label: "Department Name" },
+        { key: "description", label: "Description" },
+        { key: "status", label: "Status", badge: true },
+      ],
+      rows: [
+        { code: "DPT-01", name: "Production", description: "Manufacturing and production operations", status: "Active" },
+        { code: "DPT-02", name: "Purchase", description: "Procurement and supplier coordination", status: "Active" },
+        { code: "DPT-03", name: "Stores", description: "Inventory storage and material handling", status: "Active" },
+        { code: "DPT-04", name: "Quality", description: "Quality inspection and assurance", status: "Active" },
+        { code: "DPT-05", name: "Sales", description: "Sales and customer order handling", status: "Active" },
+      ],
+    },
+    form: {
+      tabs: [
         {
-          key: "additional",
-          label: "Additional Information",
+          key: "details",
+          label: "Department Details",
           fields: [
-            { key: "internalNotes", label: "Internal Notes", type: "textarea", span: "full" },
-            { key: "attachment", label: "Attachment Upload", type: "file" },
+            { key: "code", label: "Department Code", type: "text", autoGenerated: true, readOnly: true, placeholder: "Auto generated after save" },
+            { key: "name", label: "Department Name", type: "text", required: true },
+            { key: "description", label: "Description", type: "text" },
+            { key: "status", label: "Status", type: "select", options: statusOptions },
+          ],
+        },
+      ],
+    },
+  },
+
+  "warehouse-type": {
+    label: "Warehouse Type",
+    singular: "Warehouse Type",
+    icon: "Tags",
+    description: "Manage warehouse classification values",
+    statLabel: "Total Types",
+    autoGeneratedCode: true,
+    list: {
+      subtitle: "Manage warehouse type values used by warehouses.",
+      searchPlaceholder: "Search by type code, type name...",
+      searchKeys: ["code", "name"],
+      filters: [
+        { key: "status", label: "Status", options: ["Active", "Inactive"] },
+      ],
+      summary: [
+        { label: "Total Types", tone: "primary", compute: (rows) => rows.length },
+        { label: "Active Types", tone: "success", compute: (rows) => rows.filter((r) => r.status === "Active").length },
+        { label: "Inactive Types", tone: "muted", compute: (rows) => rows.filter((r) => r.status === "Inactive").length },
+        { label: "Draft Types", tone: "accent", compute: (rows) => rows.filter((r) => r.status === "Draft").length },
+      ],
+      columns: [
+        { key: "code", label: "Type Code", mono: true },
+        { key: "name", label: "Warehouse Type" },
+        { key: "description", label: "Description" },
+        { key: "status", label: "Status", badge: true },
+      ],
+      rows: [
+        { code: "WHT-01", name: "Manufacturing", description: "Production and assembly storage areas", status: "Active" },
+        { code: "WHT-02", name: "Raw Material", description: "Stores for incoming raw materials", status: "Active" },
+        { code: "WHT-03", name: "Finished Goods", description: "Storage for packed or completed goods", status: "Active" },
+        { code: "WHT-04", name: "Distribution", description: "Dispatch and regional distribution hubs", status: "Active" },
+        { code: "WHT-05", name: "General", description: "General purpose storage", status: "Active" },
+      ],
+    },
+    form: {
+      tabs: [
+        {
+          key: "details",
+          label: "Type Details",
+          fields: [
+            { key: "code", label: "Type Code", type: "text", autoGenerated: true, readOnly: true, placeholder: "Auto generated after save" },
+            { key: "name", label: "Warehouse Type", type: "text", required: true },
+            { key: "description", label: "Description", type: "text" },
             { key: "status", label: "Status", type: "select", options: statusOptions },
           ],
         },
@@ -540,13 +698,13 @@ export const masterEntities = {
       searchKeys: ["code", "name"],
       deriveRow: () => ({ utilization: 0 }),
       filters: [
-        { key: "type", label: "Warehouse Type", options: ["Manufacturing", "Raw Material", "Finished Goods", "Distribution", "General"] },
+        { key: "type", label: "Warehouse Type", optionsFrom: "warehouse-type" },
         { key: "status", label: "Status", options: ["Active", "Inactive"] },
       ],
       summary: [
         { label: "Total Warehouses", tone: "primary", compute: (rows) => rows.length },
         { label: "Active Warehouses", tone: "success", compute: (rows) => rows.filter((r) => r.status === "Active").length },
-        { label: "Avg. Utilization", tone: "accent", compute: (rows) => `${Math.round(rows.reduce((sum, r) => sum + r.utilization, 0) / rows.length)}%` },
+        { label: "Avg. Utilization", tone: "accent", compute: (rows) => `${rows.length ? Math.round(rows.reduce((sum, r) => sum + (Number(r.utilization) || 0), 0) / rows.length) : 0}%` },
         { label: "Near Capacity (>80%)", tone: "warning", compute: (rows) => rows.filter((r) => r.utilization > 80).length },
       ],
       columns: [
@@ -573,28 +731,26 @@ export const masterEntities = {
           fields: [
             { key: "code", label: "Warehouse Code", type: "text", autoGenerated: true, readOnly: true, placeholder: "Auto generated after save" },
             { key: "name", label: "Warehouse Name", type: "text", required: true },
-            { key: "type", label: "Warehouse Type", type: "select", required: true, options: ["Manufacturing", "Raw Material", "Finished Goods", "Distribution", "General"] },
+            { key: "type", label: "Warehouse Type", type: "select", required: true, searchable: true, optionsFrom: "warehouse-type" },
             { key: "manager", label: "Warehouse Manager", type: "text" },
+            { key: "capacity", label: "Capacity", type: "number" },
+            { key: "capacityUnit", label: "Capacity Unit", type: "select", searchable: true, optionsFrom: "unit" },
+            { key: "maxWeight", label: "Maximum Weight (Ton)", type: "number" },
+            { key: "maxVolume", label: "Maximum Volume (m3)", type: "number" },
+            { key: "status", label: "Status", type: "select", options: statusOptions },
+            { key: "internalNotes", label: "Internal Notes", type: "textarea", span: "full" },
           ],
         },
         {
           key: "address",
           label: "Address",
+          columns: 4,
           fields: [
-            { key: "addressLine", label: "Address", type: "textarea", span: "full" },
             { key: "city", label: "City", type: "text" },
-            { key: "state", label: "State", type: "text" },
+            { key: "state", label: "State", type: "select", searchable: true, optionsFromLocation: "states", clearOnChange: ["district"] },
+            { key: "district", label: "District", type: "select", searchable: true, optionsFromLocation: "districts", dependsOn: "state" },
             { key: "pincode", label: "Pincode", type: "text" },
-          ],
-        },
-        {
-          key: "capacity",
-          label: "Capacity",
-          fields: [
-            { key: "capacity", label: "Capacity", type: "number" },
-            { key: "capacityUnit", label: "Capacity Unit", type: "select", options: ["Sq. Ft.", "Pallets", "Cubic Meters"] },
-            { key: "maxWeight", label: "Maximum Weight (Ton)", type: "number" },
-            { key: "maxVolume", label: "Maximum Volume (m³)", type: "number" },
+            { key: "addressLine", label: "Address", type: "textarea", span: "full" },
           ],
         },
         {
@@ -609,11 +765,53 @@ export const masterEntities = {
             { key: "dispatchArea", label: "Dispatch Area", type: "toggle" },
           ],
         },
+      ],
+    },
+  },
+
+  "location-type": {
+    label: "Location Type",
+    singular: "Location Type",
+    icon: "Tags",
+    description: "Manage stock location classification values",
+    statLabel: "Total Types",
+    autoGeneratedCode: true,
+    list: {
+      subtitle: "Manage stock location type values used by stock locations.",
+      searchPlaceholder: "Search by type code, type name...",
+      searchKeys: ["code", "name"],
+      filters: [
+        { key: "status", label: "Status", options: ["Active", "Inactive"] },
+      ],
+      summary: [
+        { label: "Total Types", tone: "primary", compute: (rows) => rows.length },
+        { label: "Active Types", tone: "success", compute: (rows) => rows.filter((r) => r.status === "Active").length },
+        { label: "Inactive Types", tone: "muted", compute: (rows) => rows.filter((r) => r.status === "Inactive").length },
+        { label: "Draft Types", tone: "accent", compute: (rows) => rows.filter((r) => r.status === "Draft").length },
+      ],
+      columns: [
+        { key: "code", label: "Type Code", mono: true },
+        { key: "name", label: "Location Type" },
+        { key: "description", label: "Description" },
+        { key: "status", label: "Status", badge: true },
+      ],
+      rows: [
+        { code: "LCT-01", name: "Rack", description: "Rack-based storage locations", status: "Active" },
+        { code: "LCT-02", name: "Shelf", description: "Shelf-based storage locations", status: "Active" },
+        { code: "LCT-03", name: "Bin", description: "Bin-based storage locations", status: "Active" },
+        { code: "LCT-04", name: "Floor", description: "Floor storage locations", status: "Active" },
+        { code: "LCT-05", name: "Zone", description: "Zone-level storage locations", status: "Active" },
+      ],
+    },
+    form: {
+      tabs: [
         {
-          key: "additional",
-          label: "Additional Information",
+          key: "details",
+          label: "Type Details",
           fields: [
-            { key: "internalNotes", label: "Internal Notes", type: "textarea", span: "full" },
+            { key: "code", label: "Type Code", type: "text", autoGenerated: true, readOnly: true, placeholder: "Auto generated after save" },
+            { key: "name", label: "Location Type", type: "text", required: true },
+            { key: "description", label: "Description", type: "text" },
             { key: "status", label: "Status", type: "select", options: statusOptions },
           ],
         },
@@ -634,7 +832,7 @@ export const masterEntities = {
       searchKeys: ["code", "name"],
       filters: [
         { key: "warehouse", label: "Warehouse", optionsFrom: "warehouse" },
-        { key: "type", label: "Location Type", options: ["Rack", "Shelf", "Bin", "Floor", "Zone"] },
+        { key: "type", label: "Location Type", optionsFrom: "location-type" },
         { key: "status", label: "Status", options: ["Active", "Inactive"] },
       ],
       summary: [
@@ -664,11 +862,18 @@ export const masterEntities = {
         {
           key: "basic",
           label: "Basic Information",
+          columns: 5,
           fields: [
             { key: "code", label: "Location Code", type: "text", autoGenerated: true, readOnly: true, placeholder: "Auto generated after save" },
-            { key: "name", label: "Location Name", type: "text", required: true },
-            { key: "warehouse", label: "Warehouse", type: "select", required: true, optionsFrom: "warehouse" },
-            { key: "type", label: "Location Type", type: "select", required: true, options: ["Rack", "Shelf", "Bin", "Floor", "Zone"] },
+            { key: "name", label: "Location Name", type: "text", required: true, spanColumns: 2 },
+            { key: "warehouse", label: "Warehouse", type: "select", required: true, optionsFrom: "warehouse", spanColumns: 2 },
+            { key: "type", label: "Location Type", type: "select", required: true, searchable: true, optionsFrom: "location-type" },
+            { key: "maxQuantity", label: "Maximum Quantity", type: "number" },
+            { key: "maxWeight", label: "Maximum Weight (kg)", type: "number" },
+            { key: "maxVolume", label: "Maximum Volume (m3)", type: "number" },
+            { key: "utilization", label: "Current Utilization (%)", type: "number" },
+            { key: "status", label: "Status", type: "select", options: statusOptions },
+            { key: "internalNotes", label: "Internal Notes", type: "textarea", span: "full" },
           ],
         },
         {
@@ -682,32 +887,22 @@ export const masterEntities = {
           ],
         },
         {
-          key: "capacity",
-          label: "Capacity",
-          fields: [
-            { key: "maxQuantity", label: "Maximum Quantity", type: "number" },
-            { key: "maxWeight", label: "Maximum Weight (kg)", type: "number" },
-            { key: "maxVolume", label: "Maximum Volume (m³)", type: "number" },
-            { key: "utilization", label: "Current Utilization (%)", type: "number" },
-          ],
-        },
-        {
           key: "rules",
           label: "Storage Rules",
           fields: [
-            { key: "allowedCategory", label: "Allowed Item Category", type: "select", options: ["Any", "Fasteners", "Bearings", "Hydraulics", "Electricals", "Metals", "Polymers", "Chemicals"] },
-            { key: "temperature", label: "Temperature Requirement", type: "select", options: ["Ambient", "Cool Storage", "Cold Storage", "Frozen"] },
             { key: "hazardous", label: "Hazardous Material", type: "toggle" },
             { key: "batchAllowed", label: "Batch Allowed", type: "toggle" },
             { key: "expiryTracking", label: "Expiry Tracking", type: "toggle" },
-          ],
-        },
-        {
-          key: "additional",
-          label: "Additional Information",
-          fields: [
-            { key: "internalNotes", label: "Internal Notes", type: "textarea", span: "full" },
-            { key: "status", label: "Status", type: "select", options: statusOptions },
+            {
+              key: "allowedCategory",
+              label: "Allowed Item Category",
+              type: "select",
+              searchable: true,
+              optionsFrom: "category",
+              optionsFilter: (row) => row.type === "Material",
+              prependOptions: ["Any"],
+            },
+            { key: "temperature", label: "Temperature Requirement", type: "text" },
           ],
         },
       ],
@@ -715,4 +910,4 @@ export const masterEntities = {
   },
 };
 
-export const masterEntityOrder = ["product-item", "raw-material", "category", "unit", "supplier", "warehouse", "stock-location"];
+export const masterEntityOrder = ["product-item", "raw-material", "category", "unit", "supplier", "department", "warehouse", "warehouse-type", "stock-location", "location-type"];

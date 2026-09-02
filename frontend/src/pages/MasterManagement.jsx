@@ -1,13 +1,13 @@
 import React from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
-import { ArrowRight, Boxes, MapPin, Package, Ruler, Tags, Truck, Warehouse } from "lucide-react";
+import { ArrowRight, Boxes, Building2, MapPin, Package, Ruler, Tags, Truck, Warehouse } from "lucide-react";
 import { masterEntities, masterEntityOrder } from "../data/masterManagement.js";
 import { MasterSidebar } from "../components/master/MasterSidebar.jsx";
 import { useMasterData } from "../components/master/MasterDataContext.jsx";
 import { MasterList } from "../components/master/MasterList.jsx";
 import { MasterForm } from "../components/master/MasterForm.jsx";
 
-const icons = { Package, Boxes, Tags, Ruler, Truck, Warehouse, MapPin };
+const icons = { Package, Boxes, Tags, Ruler, Truck, Warehouse, MapPin, Building2 };
 
 function MasterLayout({ children }) {
   return (
@@ -24,7 +24,7 @@ export function MasterManagementHome() {
   return (
     <MasterLayout>
       <div>
-        <h2 className="text-xl font-semibold text-[var(--ink)]">Master Management</h2>
+        <h2 className="text-xl font-semibold text-[var(--ink)]">Master Setup</h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Manage products, materials, suppliers, warehouses and inventory configuration.
         </p>

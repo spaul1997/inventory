@@ -6,10 +6,14 @@ const AuthContext = createContext(null);
 
 function getStoredSession() {
   try {
-    const storedSession = JSON.parse(localStorage.getItem(SESSION_KEY)) || null;
+    const storedSession =
+      JSON.parse(localStorage.getItem(SESSION_KEY)) ||
+      JSON.parse(sessionStorage.getItem(SESSION_KEY)) ||
+      null;
     return storedSession ? { ...storedSession, verified: false } : null;
   } catch {
     localStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(SESSION_KEY);
     return null;
   }
 }
@@ -17,10 +21,27 @@ function getStoredSession() {
 function persistSession(session, remember) {
   if (remember) {
     localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    sessionStorage.removeItem(SESSION_KEY);
     return;
   }
 
   localStorage.removeItem(SESSION_KEY);
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+}
+
+function updateStoredSession(session) {
+  if (localStorage.getItem(SESSION_KEY)) {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  }
+
+  if (sessionStorage.getItem(SESSION_KEY)) {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  }
+}
+
+function clearStoredSession() {
+  localStorage.removeItem(SESSION_KEY);
+  sessionStorage.removeItem(SESSION_KEY);
 }
 
 export function AuthProvider({ children }) {
@@ -39,15 +60,13 @@ export function AuthProvider({ children }) {
         setSession((prev) => {
           if (!prev || prev.token !== session.token) return prev;
           const next = { ...prev, user: { ...prev.user, ...data.user }, verified: true };
-          if (localStorage.getItem(SESSION_KEY)) {
-            localStorage.setItem(SESSION_KEY, JSON.stringify(next));
-          }
+          updateStoredSession(next);
           return next;
         });
       } catch {
         if (!mounted) return;
         setSession(null);
-        localStorage.removeItem(SESSION_KEY);
+        clearStoredSession();
       }
     }
 
@@ -79,15 +98,13 @@ export function AuthProvider({ children }) {
       },
       logout() {
         setSession(null);
-        localStorage.removeItem(SESSION_KEY);
+        clearStoredSession();
       },
       updateProfile(patch) {
         setSession((prev) => {
           if (!prev) return prev;
           const next = { ...prev, user: { ...prev.user, ...patch } };
-          if (localStorage.getItem(SESSION_KEY)) {
-            localStorage.setItem(SESSION_KEY, JSON.stringify(next));
-          }
+          updateStoredSession(next);
           return next;
         });
       },

@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { AlertCircle, ChevronRight as Crumb, Paperclip, Plus, Trash2 } from "lucide-react";
+import { AlertCircle, ChevronDown, ChevronRight as Crumb, Paperclip, Plus, Trash2 } from "lucide-react";
 import { masterEntities } from "../../data/masterManagement.js";
+import { listStateDistricts } from "../../services/locationService.js";
 import { useMasterData } from "./MasterDataContext.jsx";
 import { useToast } from "../Toast.jsx";
 
@@ -21,20 +22,108 @@ function optionLabel(row) {
   return row.name || row.storeName || row.code || "";
 }
 
+function relatedOptionLabel(entityKey, row) {
+  if (entityKey === "unit" && row.symbol) return `${row.name || row.code} (${row.symbol})`;
+  return optionLabel(row);
+}
+
 function uniqueOptions(values) {
   return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
 }
 
-function resolveFieldOptions(field, getRows, currentValue) {
-  if (field.optionsFrom === "warehouse") {
-    const warehouseOptions = getRows("warehouse")
-      .filter((row) => row.status !== "Inactive")
-      .map(optionLabel);
+function resolveFieldOptions(field, getRows, currentValue, values, stateDistricts) {
+  if (field.optionsFromLocation === "states") {
+    return uniqueOptions([...Object.keys(stateDistricts), currentValue]);
+  }
 
-    return uniqueOptions([...warehouseOptions, currentValue]);
+  if (field.optionsFromLocation === "districts") {
+    const state = values[field.dependsOn || "state"];
+    return uniqueOptions([...(stateDistricts[state] || []), currentValue]);
+  }
+
+  if (field.optionsFrom) {
+    const entityOptions = getRows(field.optionsFrom)
+      .filter((row) => row.status !== "Inactive")
+      .filter((row) => !field.optionsFilter || field.optionsFilter(row, values))
+      .map((row) => relatedOptionLabel(field.optionsFrom, row));
+
+    return uniqueOptions([...(field.prependOptions || []), ...entityOptions, currentValue]);
   }
 
   return field.options || [];
+}
+
+function SearchableSelect({ field, value, options, disabled, className, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const rootRef = useRef(null);
+  const filteredOptions = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter((option) => option.toLowerCase().includes(q));
+  }, [options, query]);
+
+  useEffect(() => {
+    if (!open) setQuery("");
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    function handleDocumentMouseDown(event) {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    }
+
+    document.addEventListener("mousedown", handleDocumentMouseDown);
+    return () => document.removeEventListener("mousedown", handleDocumentMouseDown);
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((current) => !current)}
+        className={`${className} flex items-center justify-between gap-2 text-left`}
+      >
+        <span className={value ? "" : "text-slate-400"}>
+          {value || `Select ${field.label.toLowerCase()}...`}
+        </span>
+        <ChevronDown size={16} className={`shrink-0 text-[var(--muted)] transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && !disabled && (
+        <div className="absolute z-40 mt-1 w-full overflow-hidden rounded-md border border-[var(--line)] bg-white shadow-lg">
+          <input
+            autoFocus
+            type="text"
+            value={query}
+            placeholder={`Search ${field.label.toLowerCase()}...`}
+            onChange={(event) => setQuery(event.target.value)}
+            className="w-full border-b border-[var(--line)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+          />
+          <div className="max-h-56 overflow-y-auto py-1">
+            {filteredOptions.length === 0 ? (
+              <p className="px-3 py-2 text-sm text-[var(--muted)]">No options found</p>
+            ) : (
+              filteredOptions.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => {
+                    onChange(option);
+                    setOpen(false);
+                  }}
+                  className={`block w-full px-3 py-2 text-left text-sm hover:bg-slate-50 ${option === value ? "font-semibold text-[var(--primary)]" : "text-[var(--ink)]"}`}
+                >
+                  {option}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function Field({ field, value, error, disabled, onChange }) {
@@ -57,35 +146,41 @@ function Field({ field, value, error, disabled, onChange }) {
 
   if (field.type === "toggle") {
     return (
-      <label className="flex items-center justify-between gap-3 rounded-md border border-[var(--line)] px-3 py-2.5">
-        <span className="text-sm font-medium text-[var(--ink)]">{field.label}</span>
-        <button
-          type="button"
-          disabled={isDisabled}
-          onClick={() => onChange(!value)}
-          aria-pressed={Boolean(value)}
-          className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
-            value ? "bg-[var(--primary)]" : "bg-slate-200"
-          }`}
-        >
-          <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${value ? "translate-x-5" : "translate-x-0.5"}`} />
-        </button>
-      </label>
+      <div>
+        <p className="mb-1.5 hidden text-sm font-medium sm:block" aria-hidden="true">&nbsp;</p>
+        <label className="flex h-10 items-center justify-between gap-3 rounded-md border border-[var(--line)] px-3">
+          <span className="text-sm font-medium text-[var(--ink)]">{field.label}</span>
+          <button
+            type="button"
+            disabled={isDisabled}
+            onClick={() => onChange(!value)}
+            aria-pressed={Boolean(value)}
+            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
+              value ? "bg-[var(--primary)]" : "bg-slate-200"
+            }`}
+          >
+            <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${value ? "translate-x-5" : "translate-x-0"}`} />
+          </button>
+        </label>
+      </div>
     );
   }
 
   if (field.type === "checkbox") {
     return (
-      <label className="flex items-center gap-2 rounded-md border border-[var(--line)] px-3 py-2.5 text-sm font-medium text-[var(--ink)]">
-        <input
-          type="checkbox"
-          checked={Boolean(value)}
-          disabled={disabled}
-          onChange={(event) => onChange(event.target.checked)}
-          className="h-4 w-4 rounded border-[var(--line)] text-[var(--primary)] focus:ring-[var(--primary)]"
-        />
-        {field.label}
-      </label>
+      <div>
+        <p className="mb-1.5 hidden text-sm font-medium sm:block" aria-hidden="true">&nbsp;</p>
+        <label className="flex h-10 items-center gap-2 rounded-md border border-[var(--line)] px-3 text-sm font-medium text-[var(--ink)]">
+          <input
+            type="checkbox"
+            checked={Boolean(value)}
+            disabled={disabled}
+            onChange={(event) => onChange(event.target.checked)}
+            className="h-4 w-4 rounded border-[var(--line)] text-[var(--primary)] focus:ring-[var(--primary)]"
+          />
+          {field.label}
+        </label>
+      </div>
     );
   }
 
@@ -96,14 +191,18 @@ function Field({ field, value, error, disabled, onChange }) {
           {field.label}
           {field.required && <span className="ml-0.5 text-[var(--danger)]">*</span>}
         </label>
-        <select value={value} disabled={isDisabled} onChange={(event) => onChange(event.target.value)} className={baseInput}>
-          <option value="">Select {field.label.toLowerCase()}...</option>
-          {options.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
+        {field.searchable ? (
+          <SearchableSelect field={field} value={value} options={options} disabled={isDisabled} className={`${baseInput} h-10`} onChange={onChange} />
+        ) : (
+          <select value={value} disabled={isDisabled} onChange={(event) => onChange(event.target.value)} className={`${baseInput} h-10`}>
+            <option value="">Select {field.label.toLowerCase()}...</option>
+            {options.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        )}
         {error && <p className="mt-1 text-xs text-[var(--danger)]">{error}</p>}
       </div>
     );
@@ -132,7 +231,7 @@ function Field({ field, value, error, disabled, onChange }) {
     return (
       <div>
         <label className="mb-1.5 block text-sm font-medium text-[var(--ink)]">{field.label}</label>
-        <label className={`flex cursor-pointer items-center gap-2 rounded-md border border-dashed px-3 py-2.5 text-sm ${disabled ? "text-[var(--muted)]" : "text-[var(--ink)] hover:bg-slate-50"} border-[var(--line)]`}>
+        <label className={`flex h-10 cursor-pointer items-center gap-2 rounded-md border border-dashed px-3 text-sm ${disabled ? "text-[var(--muted)]" : "text-[var(--ink)] hover:bg-slate-50"} border-[var(--line)]`}>
           <Paperclip size={14} />
           {value ? value : "Choose file..."}
           <input
@@ -231,7 +330,7 @@ function Field({ field, value, error, disabled, onChange }) {
         disabled={isDisabled}
         placeholder={field.placeholder}
         onChange={(event) => onChange(event.target.value)}
-        className={baseInput}
+        className={`${baseInput} h-10`}
       />
       {error && <p className="mt-1 text-xs text-[var(--danger)]">{error}</p>}
     </div>
@@ -259,7 +358,12 @@ export function MasterForm({ entityKey, mode, recordId }) {
   const [errors, setErrors] = useState({});
   const [errorBanner, setErrorBanner] = useState("");
   const [saving, setSaving] = useState(false);
+  const [stateDistricts, setStateDistricts] = useState({});
   const isView = mode === "view";
+  const usesLocationOptions = useMemo(
+    () => entity.form.tabs.some((tab) => tab.fields.some((field) => field.optionsFromLocation)),
+    [entity.form.tabs]
+  );
 
   useEffect(() => {
     if (recordId && existingRecord) {
@@ -267,8 +371,39 @@ export function MasterForm({ entityKey, mode, recordId }) {
     }
   }, [entity, existingRecord, recordId]);
 
-  function setField(key, value) {
-    setValues((prev) => ({ ...prev, [key]: value }));
+  useEffect(() => {
+    if (!usesLocationOptions) return undefined;
+
+    let mounted = true;
+    listStateDistricts()
+      .then((nextStateDistricts) => {
+        if (mounted) setStateDistricts(nextStateDistricts);
+      })
+      .catch(() => {
+        if (mounted) setStateDistricts({});
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [usesLocationOptions]);
+
+  function setField(key, value, field) {
+    setValues((prev) => {
+      const next = { ...prev, [key]: value };
+      (field?.clearOnChange || []).forEach((clearKey) => {
+        next[clearKey] = "";
+      });
+      return next;
+    });
+  }
+
+  function spanClass(field, tab) {
+    if (field.spanColumns === 2) return "sm:col-span-2 lg:col-span-2";
+    if (field.spanColumns === 3) return "sm:col-span-2 lg:col-span-3";
+    if (field.span !== "full") return "";
+    if (tab.columns === 5) return "sm:col-span-2 lg:col-span-5";
+    return `sm:col-span-2 ${tab.columns === 4 ? "lg:col-span-4" : "lg:col-span-3"}`;
   }
 
   function validate() {
@@ -355,7 +490,7 @@ export function MasterForm({ entityKey, mode, recordId }) {
     <div>
       <p className="mb-2 flex items-center gap-1 text-xs text-[var(--muted)]">
         <Link to="/master-management" className="hover:text-[var(--primary)]">
-          Master Management
+          Master Setup
         </Link>
         <Crumb size={12} />
         <Link to={`/master-management/${entityKey}`} className="hover:text-[var(--primary)]">
@@ -396,21 +531,23 @@ export function MasterForm({ entityKey, mode, recordId }) {
           {entity.form.tabs
             .filter((tab) => tab.key === activeTab)
             .map((tab) => (
-              <div key={tab.key} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {tab.fields.map((field) => (
-                  <div key={field.key} className={field.span === "full" ? "sm:col-span-2 lg:col-span-3" : ""}>
-                    <Field
-                      field={{
-                        ...field,
-                        options: resolveFieldOptions(field, getRows, values[field.key]),
-                      }}
-                      value={field.type === "computed" ? values : values[field.key]}
-                      error={errors[field.key]}
-                      disabled={isView}
-                      onChange={(next) => setField(field.key, next)}
-                    />
-                  </div>
-                ))}
+              <div key={tab.key} className={`grid grid-cols-1 gap-4 sm:grid-cols-2 ${tab.columns === 5 ? "lg:grid-cols-5" : tab.columns === 4 ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
+                {tab.fields
+                  .filter((field) => !field.autoGenerated)
+                  .map((field) => (
+                    <div key={field.key} className={spanClass(field, tab)}>
+                      <Field
+                        field={{
+                          ...field,
+                          options: resolveFieldOptions(field, getRows, values[field.key], values, stateDistricts),
+                        }}
+                        value={field.type === "computed" ? values : values[field.key]}
+                        error={errors[field.key]}
+                        disabled={isView}
+                        onChange={(next) => setField(field.key, next, field)}
+                      />
+                    </div>
+                  ))}
               </div>
             ))}
         </div>

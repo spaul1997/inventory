@@ -25,7 +25,7 @@ function loadSettings() {
 
 const landingPages = [
   { value: "/dashboard", label: "Dashboard" },
-  { value: "/master-management", label: "Master Management" },
+  { value: "/master-management", label: "Master Setup" },
   { value: "/purchase-management", label: "Purchase Management" },
   { value: "/stock-management", label: "Stock Management" },
   { value: "/manufacturing", label: "Manufacturing" },
@@ -47,7 +47,7 @@ function ToggleSwitch({ checked, onChange, label, sub }) {
         onClick={() => onChange(!checked)}
         className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${checked ? "bg-[var(--primary)]" : "bg-slate-300"}`}
       >
-        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-5" : "translate-x-0.5"}`} />
+        <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-5" : "translate-x-0"}`} />
       </button>
     </label>
   );

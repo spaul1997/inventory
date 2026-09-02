@@ -41,10 +41,11 @@ function uniqueOptions(values) {
 }
 
 function resolveFilterOptions(filter, getRows) {
-  if (filter.optionsFrom === "warehouse") {
+  if (filter.optionsFrom) {
     return uniqueOptions(
-      getRows("warehouse")
+      getRows(filter.optionsFrom)
         .filter((row) => row.status !== "Inactive")
+        .filter((row) => !filter.optionsFilter || filter.optionsFilter(row))
         .map(optionLabel)
     );
   }
@@ -79,6 +80,7 @@ export function MasterList({ entityKey }) {
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState({ key: null, dir: 1 });
   const [openMenuFor, setOpenMenuFor] = useState(null);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const [confirmTarget, setConfirmTarget] = useState(null);
   const menuRef = useRef(null);
 
@@ -153,6 +155,24 @@ export function MasterList({ entityKey }) {
     navigate(`/master-management/${entityKey}/new`, { state: { duplicateFrom: row } });
   }
 
+  function recordKey(row) {
+    return row.code || row.id || row.name;
+  }
+
+  function recordRouteId(row) {
+    return encodeURIComponent(row.code || row.id || row.name);
+  }
+
+  function toggleActionMenu(event, row) {
+    const key = recordKey(row);
+    const rect = event.currentTarget.getBoundingClientRect();
+    setMenuPosition({
+      top: rect.bottom + 4,
+      left: Math.max(8, rect.right - 160),
+    });
+    setOpenMenuFor((current) => (current === key ? null : key));
+  }
+
   async function confirmDeactivate() {
     if (!confirmTarget) return;
     try {
@@ -168,7 +188,7 @@ export function MasterList({ entityKey }) {
     <div>
       <p className="mb-2 flex items-center gap-1 text-xs text-[var(--muted)]">
         <Link to="/master-management" className="hover:text-[var(--primary)]">
-          Master Management
+          Master Setup
         </Link>
         <Crumb size={12} />
         <span className="text-[var(--ink)]">{entity.label}</span>
@@ -305,8 +325,11 @@ export function MasterList({ entityKey }) {
               )}
 
               {!isLoading &&
-                pageRows.map((row) => (
-                  <tr key={row.code} className="border-b border-slate-100 hover:bg-slate-50/60">
+                pageRows.map((row) => {
+                  const key = recordKey(row);
+
+                  return (
+                  <tr key={key} className="border-b border-slate-100 hover:bg-slate-50/60">
                     {entity.list.columns.map((col) => (
                       <td key={col.key} className={`px-3 py-3 first:pl-4 ${col.align === "right" ? "text-right" : ""}`}>
                         {col.badge ? (
@@ -325,22 +348,23 @@ export function MasterList({ entityKey }) {
                     <td className="relative px-3 py-3 text-right">
                       <button
                         type="button"
-                        onClick={() => setOpenMenuFor(openMenuFor === row.code ? null : row.code)}
+                        onClick={(event) => toggleActionMenu(event, row)}
                         className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--muted)] hover:bg-slate-100 hover:text-[var(--ink)]"
                         aria-label="Row actions"
                       >
                         <MoreHorizontal size={16} />
                       </button>
-                      {openMenuFor === row.code && (
+                      {openMenuFor === key && (
                         <div
                           ref={menuRef}
-                          className="absolute right-3 top-full z-20 mt-1 w-40 overflow-hidden rounded-md border border-[var(--line)] bg-white text-left shadow-lg"
+                          className="fixed z-50 w-40 overflow-hidden rounded-md border border-[var(--line)] bg-white text-left shadow-lg"
+                          style={{ top: menuPosition.top, left: menuPosition.left }}
                         >
                           <button
                             type="button"
                             onClick={() => {
                               setOpenMenuFor(null);
-                              navigate(`/master-management/${entityKey}/${row.code}/view`);
+                              navigate(`/master-management/${entityKey}/${recordRouteId(row)}/view`);
                             }}
                             className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[var(--ink)] hover:bg-slate-50"
                           >
@@ -350,7 +374,7 @@ export function MasterList({ entityKey }) {
                             type="button"
                             onClick={() => {
                               setOpenMenuFor(null);
-                              navigate(`/master-management/${entityKey}/${row.code}/edit`);
+                              navigate(`/master-management/${entityKey}/${recordRouteId(row)}/edit`);
                             }}
                             className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[var(--ink)] hover:bg-slate-50"
                           >
@@ -381,7 +405,8 @@ export function MasterList({ entityKey }) {
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
             </tbody>
           </table>
         </div>

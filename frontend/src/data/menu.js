@@ -6,7 +6,7 @@ function slugify(text) {
 }
 
 // Sub-items that already have a real page in this build keep their existing route
-// instead of a generated placeholder path. Master Management's, Purchase
+// instead of a generated placeholder path. Master Setup's, Purchase
 // Management's, Stock Management's, Manufacturing's and Sales's own children
 // are generated below (they resolve to /master-management/<slug>,
 // /purchase-management/<slug>, /stock-management/<slug>, /manufacturing/<slug>
@@ -17,10 +17,6 @@ const existingRoutes = {};
 
 const rawSections = [
   { label: "Dashboard", to: "/dashboard" },
-  {
-    label: "Master Management",
-    children: ["Product / Item", "Raw Material", "Category", "Unit", "Supplier", "Warehouse", "Stock Location"],
-  },
   {
     label: "Purchase Management",
     children: ["Purchase Request", "Purchase Order", "Goods Receipt", "Purchase Return"],
@@ -65,12 +61,28 @@ const rawSections = [
       "Sales Return Report",
     ],
   },
+  {
+    label: "Master Setup",
+    slug: "master-management",
+    children: [
+      "Product / Item",
+      "Raw Material",
+      "Category",
+      "Unit",
+      "Supplier",
+      "Department",
+      "Warehouse",
+      "Warehouse Type",
+      "Stock Location",
+      "Location Type",
+    ],
+  },
 ];
 
 export const menu = rawSections.map((section) => {
   if (!section.children) return section;
 
-  const sectionSlug = slugify(section.label);
+  const sectionSlug = section.slug || slugify(section.label);
   return {
     ...section,
     children: section.children.map((label) => ({
@@ -82,7 +94,7 @@ export const menu = rawSections.map((section) => {
 
 export const placeholderLookup = new Map();
 menu.forEach((section) => {
-  if (["Master Management", "Purchase Management", "Stock Management", "Inventory Reports", "Manufacturing", "Sales", "Manufacturing & Sales Reports"].includes(section.label)) return; // owned by their own modules, not the generic Placeholder page
+  if (["Master Setup", "Purchase Management", "Stock Management", "Inventory Reports", "Manufacturing", "Sales", "Manufacturing & Sales Reports"].includes(section.label)) return; // owned by their own modules, not the generic Placeholder page
   section.children?.forEach((child) => {
     if (!Object.values(existingRoutes).includes(child.to)) {
       placeholderLookup.set(child.to, { section: section.label, title: child.label });

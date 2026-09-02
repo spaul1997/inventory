@@ -29,14 +29,14 @@ const storeSchema = new mongoose.Schema(
 
     storeType: {
       type: String,
-      enum: ["grocery", "mobile", "garment", "retail", "pharmacy", "Manufacturing", "Raw Material", "Finished Goods", "Distribution", "General"],
       default: "General",
+      trim: true,
     },
 
     type: {
       type: String,
-      enum: ["Manufacturing", "Raw Material", "Finished Goods", "Distribution", "General"],
       default: "General",
+      trim: true,
     },
 
     manager: {
@@ -74,6 +74,12 @@ const storeSchema = new mongoose.Schema(
     },
 
     state: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    district: {
       type: String,
       default: "",
       trim: true,

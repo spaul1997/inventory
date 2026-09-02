@@ -1,9 +1,9 @@
 import React from "react";
 import { NavLink } from "react-router-dom";
-import { Boxes, LayoutDashboard, MapPin, Package, Ruler, Tags, Truck, Warehouse } from "lucide-react";
+import { Boxes, Building2, LayoutDashboard, MapPin, Package, Ruler, Tags, Truck, Warehouse } from "lucide-react";
 import { masterEntities, masterEntityOrder } from "../../data/masterManagement.js";
 
-const icons = { Package, Boxes, Tags, Ruler, Truck, Warehouse, MapPin };
+const icons = { Package, Boxes, Tags, Ruler, Truck, Warehouse, MapPin, Building2 };
 
 export function MasterSidebar() {
   return (
@@ -17,7 +17,7 @@ export function MasterSidebar() {
           Back to Dashboard
         </NavLink>
 
-        <p className="px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Master Management</p>
+        <p className="px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Master Setup</p>
         <nav className="space-y-0.5">
           {masterEntityOrder.map((key) => {
             const entity = masterEntities[key];

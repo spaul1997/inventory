@@ -36,8 +36,8 @@ const stockLocationSchema = new mongoose.Schema(
 
     type: {
       type: String,
-      enum: ["Rack", "Shelf", "Bin", "Floor", "Zone"],
       default: "Rack",
+      trim: true,
     },
 
     zone: {

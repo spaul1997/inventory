@@ -110,6 +110,12 @@ const vendorSchema = new mongoose.Schema(
       trim: true,
     },
 
+    branchName: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
     accountHolder: {
       type: String,
       default: "",

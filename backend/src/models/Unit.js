@@ -42,7 +42,7 @@ const unitSchema = new mongoose.Schema(
 
     type: {
       type: String,
-      enum: ["Count", "Weight", "Length", "Volume"],
+      enum: ["Count", "Weight", "Length", "Area", "Volume", "Time", "Packaging"],
       default: "Count",
     },
 

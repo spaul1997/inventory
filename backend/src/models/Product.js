@@ -1,5 +1,19 @@
 import mongoose from "mongoose";
 
+const productTypes = [
+  "Raw Material",
+  "Finished Goods",
+  "Consumables",
+  "Spare Parts & Components",
+  "Equipment & Assets",
+  "Services",
+  "Other / Miscellaneous",
+  "Semi-Finished Goods",
+  "Trading Item",
+  "general",
+  "medicine",
+];
+
 const productSchema = new mongoose.Schema(
   {
     tenantId: {
@@ -24,8 +38,8 @@ const productSchema = new mongoose.Schema(
 
     productType: {
       type: String,
-      enum: ["Finished Goods", "Semi-Finished Goods", "Trading Item", "general", "medicine"],
-      default: "Trading Item",
+      enum: productTypes,
+      default: "Other / Miscellaneous",
     },
 
     name: {
