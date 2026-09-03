@@ -47,15 +47,15 @@ function StockLayout({ children }) {
 export function StockManagementDashboard() {
   const stockData = useStockData();
   const masterData = useMasterData();
-  const rawMaterials = masterData.getRows("raw-material");
+  const items = masterData.getRows("product-item");
   const todayStr = today();
 
-  const totalQty = rawMaterials.reduce((sum, m) => sum + stockData.getTotalStock(m.code), 0);
-  const totalValue = rawMaterials.reduce((sum, m) => sum + stockData.getTotalStock(m.code) * (materialByCode(m.code)?.price || 0), 0);
+  const totalQty = items.reduce((sum, m) => sum + stockData.getTotalStock(m.code), 0);
+  const totalValue = items.reduce((sum, m) => sum + stockData.getTotalStock(m.code) * (materialByCode(m.code)?.price || 0), 0);
   const stockInToday = stockData.movements.filter((m) => m.date === todayStr && (m.type === "Stock In" || m.type === "Purchase")).length;
   const stockOutToday = stockData.movements.filter((m) => m.date === todayStr && m.type === "Stock Out").length;
   const pendingTransfers = stockData.getRows("stock-transfer").filter((t) => ["Pending Approval", "In Transit"].includes(t.status)).length;
-  const lowStockItems = rawMaterials.filter((m) => stockData.getTotalStock(m.code) < 100).length;
+  const lowStockItems = items.filter((m) => stockData.getTotalStock(m.code) < 100).length;
   const underAdjustment = stockData.getRows("stock-adjustment").filter((a) => a.status === "Pending Approval").length;
   const expiringBatches = stockData.batches.filter((b) => ["Near Expiry", "Expired"].includes(deriveBatchStatus(b, todayStr))).length;
 
@@ -92,7 +92,7 @@ export function StockManagementDashboard() {
 
         <section className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <Metric label="Total Stock Quantity" value={totalQty.toLocaleString("en-IN")} sub="Across all warehouses" icon={Layers} tone="primary" />
-          <Metric label="Total Stock Value" value={money.format(totalValue)} sub="Raw material inventory" icon={Scale} tone="success" trend={{ direction: "up", value: "3.1%" }} />
+          <Metric label="Total Stock Value" value={money.format(totalValue)} sub="Product / Item inventory" icon={Scale} tone="success" trend={{ direction: "up", value: "3.1%" }} />
           <Metric label="Stock In Today" value={stockInToday} sub="Movements posted today" icon={ArrowDownCircle} tone="primary" />
           <Metric label="Stock Out Today" value={stockOutToday} sub="Movements posted today" icon={ArrowUpCircle} tone="accent" />
           <Metric label="Pending Transfers" value={pendingTransfers} sub="Awaiting approval or in transit" icon={ArrowLeftRight} tone="warning" />
@@ -411,7 +411,7 @@ export function StockItemDetail() {
   const { code } = useParams();
   const stockData = useStockData();
   const masterData = useMasterData();
-  const material = masterData.getRows("raw-material").find((m) => m.code === code);
+  const material = masterData.getRows("product-item").find((m) => m.code === code);
   const info = materialByCode(code);
 
   if (!material) return <Navigate to="/stock-management" replace />;
@@ -688,30 +688,30 @@ export function StockReports() {
   const masterData = useMasterData();
   const [active, setActive] = useState("stock-summary");
   const todayStr = today();
-  const rawMaterials = masterData.getRows("raw-material");
+  const items = masterData.getRows("product-item");
 
   const stockSummaryRows = useMemo(
     () =>
-      rawMaterials.map((m) => ({
+      items.map((m) => ({
         code: m.code,
         name: m.name,
         unit: m.unit,
         qty: stockData.getTotalStock(m.code),
         value: stockData.getTotalStock(m.code) * (materialByCode(m.code)?.price || 0),
       })),
-    [rawMaterials, stockData]
+    [items, stockData]
   );
 
   const warehouseRows = useMemo(() => {
     const rows = [];
-    rawMaterials.forEach((m) => {
+    items.forEach((m) => {
       const breakdown = stockData.getWarehouseBreakdown(m.code);
       Object.entries(breakdown).forEach(([wh, qty]) => {
         if (qty > 0) rows.push({ warehouse: wh, code: m.code, name: m.name, qty, unit: m.unit });
       });
     });
     return rows;
-  }, [rawMaterials, stockData]);
+  }, [items, stockData]);
 
   const expiryRows = useMemo(
     () =>

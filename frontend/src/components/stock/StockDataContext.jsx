@@ -46,9 +46,9 @@ export function StockDataProvider({ children, storageScope }) {
   const getWarehouseBreakdown = useCallback((code) => balances[code] || {}, [balances]);
 
   function syncMasterStock(code, delta) {
-    const rows = masterData.getRows("raw-material");
+    const rows = masterData.getRows("product-item");
     const current = rows.find((r) => r.code === code);
-    if (current) masterData.updateRow("raw-material", code, { stock: Math.max(0, (Number(current.stock) || 0) + delta) });
+    if (current) masterData.updateRow("product-item", code, { stock: Math.max(0, (Number(current.stock) || 0) + delta) });
   }
 
   function nextMovementId() {

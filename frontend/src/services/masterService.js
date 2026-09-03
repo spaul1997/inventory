@@ -5,10 +5,6 @@ export const masterApiEntities = {
     path: "/master/product-items",
     label: "product items",
   },
-  "raw-material": {
-    path: "/master/raw-materials",
-    label: "raw materials",
-  },
   category: {
     path: "/master/categories",
     label: "categories",

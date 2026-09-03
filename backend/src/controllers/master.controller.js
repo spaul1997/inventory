@@ -2,7 +2,6 @@ import Category from "../models/Category.js";
 import Department from "../models/Department.js";
 import LocationType from "../models/LocationType.js";
 import Product from "../models/Product.js";
-import RawMaterial from "../models/RawMaterial.js";
 import StockLocation from "../models/StockLocation.js";
 import Store from "../models/Store.js";
 import Unit from "../models/Unit.js";
@@ -10,6 +9,7 @@ import Vendor from "../models/Vendor.js";
 import WarehouseType from "../models/WarehouseType.js";
 
 const normalize = (value) => String(value ?? "").trim();
+const normalizeUpper = (value) => normalize(value).toUpperCase();
 const normalizeEmail = (value) => normalize(value).toLowerCase();
 const DEFAULT_PRODUCT_TYPE = "Other / Miscellaneous";
 
@@ -59,6 +59,7 @@ const validateStockLocationWarehouse = async (tenantId, warehouse) => {
 
 const productFields = [
   "shortName",
+  "department",
   "category",
   "subCategory",
   "brand",
@@ -114,15 +115,22 @@ const booleanProductFields = [
   "qualityInspection",
 ];
 
+const productItemNameExists = (tenantId, name, currentCode = "") => {
+  const query = { tenantId, name: normalizeUpper(name) };
+  if (currentCode) query.code = { $ne: currentCode };
+  return Product.exists(query).collation({ locale: "en", strength: 2 });
+};
+
 const serializeProductItem = (product) => ({
   id: product.id,
   code: product.code,
   sku: product.sku || product.code,
-  name: product.name,
+  name: normalizeUpper(product.name),
   shortName: product.shortName || "",
   category: product.category || "",
   subCategory: product.subCategory || "",
   productType: product.productType || DEFAULT_PRODUCT_TYPE,
+  department: product.department || "",
   brand: product.brand || "",
   description: product.description || "",
   modelNumber: product.modelNumber || "",
@@ -155,7 +163,7 @@ const serializeProductItem = (product) => ({
   purchasePrice: product.purchasePrice || 0,
   standardCost: product.standardCost || 0,
   sellingPrice: product.sellingPrice || 0,
-  price: product.sellingPrice || 0,
+  price: product.purchasePrice || product.standardCost || product.sellingPrice || 0,
   wholesalePrice: product.wholesalePrice || 0,
   gst: product.gst || product.taxRate || 0,
   discount: product.discount || 0,
@@ -184,7 +192,7 @@ const productItemPatch = (body) => {
     patch.code = normalize(body.code);
     patch.sku = patch.code;
   }
-  if (body.name !== undefined) patch.name = normalize(body.name);
+  if (body.name !== undefined) patch.name = normalizeUpper(body.name);
   if (body.productType !== undefined) patch.productType = normalize(body.productType) || DEFAULT_PRODUCT_TYPE;
   if (body.status !== undefined) patch.status = normalize(body.status) || "Active";
 
@@ -230,104 +238,6 @@ const categoryPatch = (body) => {
   if (body.displayOrder !== undefined) patch.displayOrder = numberValue(body.displayOrder);
   if (body.itemCount !== undefined) patch.itemCount = numberValue(body.itemCount);
   if (body.status !== undefined) patch.status = normalize(body.status) || "Active";
-
-  return patch;
-};
-
-const rawMaterialTextFields = [
-  "category",
-  "subCategory",
-  "description",
-  "grade",
-  "color",
-  "dimensions",
-  "specification",
-  "baseUnit",
-  "preferredSupplier",
-  "qualityGrade",
-  "certification",
-  "defaultWarehouse",
-  "defaultLocation",
-  "storageType",
-  "internalNotes",
-  "attachment",
-];
-
-const rawMaterialNumberFields = [
-  "weight",
-  "minStock",
-  "maxStock",
-  "reorderLevel",
-  "openingQty",
-  "openingValue",
-  "leadTime",
-  "moq",
-  "lastPurchasePrice",
-];
-
-const rawMaterialBooleanFields = [
-  "batchTracking",
-  "expiryTracking",
-  "inspectionRequired",
-];
-
-const serializeRawMaterial = (material) => ({
-  id: material.id,
-  code: material.code,
-  name: material.name,
-  category: material.category || "",
-  subCategory: material.subCategory || "",
-  description: material.description || "",
-  grade: material.grade || "",
-  color: material.color || "",
-  weight: material.weight || 0,
-  dimensions: material.dimensions || "",
-  specification: material.specification || "",
-  batchTracking: Boolean(material.batchTracking),
-  expiryTracking: Boolean(material.expiryTracking),
-  baseUnit: material.baseUnit || "",
-  unit: material.baseUnit || "",
-  minStock: material.minStock || 0,
-  maxStock: material.maxStock || 0,
-  reorderLevel: material.reorderLevel || 0,
-  openingQty: material.openingQty || material.currentStock || 0,
-  openingValue: material.openingValue || 0,
-  stock: material.currentStock || material.openingQty || 0,
-  preferredSupplier: material.preferredSupplier || "",
-  leadTime: material.leadTime || 0,
-  moq: material.moq || 0,
-  lastPurchasePrice: material.lastPurchasePrice || 0,
-  price: material.lastPurchasePrice || 0,
-  qualityGrade: material.qualityGrade || "",
-  inspectionRequired: Boolean(material.inspectionRequired),
-  certification: material.certification || "",
-  defaultWarehouse: material.defaultWarehouse || "",
-  defaultLocation: material.defaultLocation || "",
-  storageType: material.storageType || "",
-  internalNotes: material.internalNotes || "",
-  attachment: material.attachment || "",
-  status: material.status || "Active",
-  createdAt: material.createdAt,
-  updatedAt: material.updatedAt,
-});
-
-const rawMaterialPatch = (body) => {
-  const patch = {};
-
-  if (body.code !== undefined) patch.code = normalize(body.code);
-  if (body.name !== undefined) patch.name = normalize(body.name);
-  if (body.status !== undefined) patch.status = normalize(body.status) || "Active";
-  rawMaterialTextFields.forEach((field) => {
-    if (body[field] !== undefined) patch[field] = normalize(body[field]);
-  });
-  rawMaterialNumberFields.forEach((field) => {
-    if (body[field] !== undefined) patch[field] = numberValue(body[field]);
-  });
-  rawMaterialBooleanFields.forEach((field) => {
-    if (body[field] !== undefined) patch[field] = booleanValue(body[field]);
-  });
-
-  if (patch.openingQty !== undefined) patch.currentStock = patch.openingQty;
 
   return patch;
 };
@@ -652,17 +562,6 @@ const stockLocationPatch = (body) => {
 };
 
 const masterEntityApis = {
-  "raw-materials": {
-    Model: RawMaterial,
-    serialize: serializeRawMaterial,
-    patch: rawMaterialPatch,
-    sort: { createdAt: -1, code: 1 },
-    autoCode: { prefix: "RM", width: 4, startAt: 2001 },
-    requiredDraft: ["name"],
-    requiredActive: ["category", "baseUnit"],
-    requiredMessage: "Material name, category, and base unit are required.",
-    draftMessage: "Material name is required.",
-  },
   units: {
     Model: Unit,
     serialize: serializeUnit,
@@ -789,6 +688,10 @@ export async function createProductItem(req, res, next) {
       });
     }
 
+    if (await productItemNameExists(req.auth.tenantId, patch.name)) {
+      return res.status(409).json({ message: "Item Name already exists." });
+    }
+
     const product = await Product.create({
       tenantId: req.auth.tenantId,
       storeId: req.auth.storeId || null,
@@ -819,6 +722,10 @@ export async function updateProductItem(req, res, next) {
     }
     if (patch.name === "") {
       return res.status(400).json({ message: "Product name is required." });
+    }
+
+    if (patch.name && await productItemNameExists(req.auth.tenantId, patch.name, currentCode)) {
+      return res.status(409).json({ message: "Item Name already exists." });
     }
 
     const product = await Product.findOneAndUpdate(

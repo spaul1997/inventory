@@ -7,43 +7,25 @@ export const number = new Intl.NumberFormat("en-IN");
 
 export const categoryPalette = ["#2563eb", "#0f2a43", "#0ea5e9", "#d97706", "#94a3b8", "#16a34a", "#7c3aed", "#db2777"];
 
-/**
- * Merges Master Management's Product / Item and Raw Material rows into one
- * flat inventory list, resolving raw-material quantities against the live
- * StockDataContext ledger so "current stock" always matches Stock Management.
- */
 export function useInventoryItems() {
   const masterData = useMasterData();
   const stockData = useStockData();
 
   const products = masterData.getRows("product-item");
-  const materials = masterData.getRows("raw-material");
 
   return useMemo(() => {
-    const productItems = products.map((row) => ({
+    return products.map((row) => ({
       code: row.code,
       name: row.name,
-      type: "Product",
+      type: row.productType || "Item",
       category: row.category,
       unit: row.unit,
-      stock: Number(row.stock) || 0,
+      stock: stockData.getTotalStock(row.code) || Number(row.stock) || 0,
       price: Number(row.price) || 0,
       status: row.status,
+      value: (stockData.getTotalStock(row.code) || Number(row.stock) || 0) * (Number(row.price) || 0),
     }));
-
-    const materialItems = materials.map((row) => ({
-      code: row.code,
-      name: row.name,
-      type: "Raw Material",
-      category: row.category,
-      unit: row.unit,
-      stock: stockData.getTotalStock(row.code),
-      price: Number(row.price) || 0,
-      status: row.status,
-    }));
-
-    return [...productItems, ...materialItems].map((item) => ({ ...item, value: item.stock * item.price }));
-  }, [products, materials, stockData]);
+  }, [products, stockData]);
 }
 
 export function groupByCategory(items) {

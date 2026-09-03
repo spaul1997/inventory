@@ -66,7 +66,6 @@ const rawSections = [
     slug: "master-management",
     children: [
       "Product / Item",
-      "Raw Material",
       "Category",
       "Unit",
       "Supplier",

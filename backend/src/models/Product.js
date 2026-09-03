@@ -42,6 +42,12 @@ const productSchema = new mongoose.Schema(
       default: "Other / Miscellaneous",
     },
 
+    department: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
     name: {
       type: String,
       required: true,
@@ -401,7 +407,20 @@ const productSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-productSchema.index({ tenantId: 1, storeId: 1, name: 1 });
+productSchema.pre("validate", function normalizeProductName() {
+  if (this.name) this.name = String(this.name).trim().toUpperCase();
+});
+
+productSchema.pre("findOneAndUpdate", function normalizeProductNameUpdate() {
+  const update = this.getUpdate();
+  const patch = update?.$set || update;
+  if (patch?.name !== undefined) patch.name = String(patch.name ?? "").trim().toUpperCase();
+});
+
+productSchema.index(
+  { tenantId: 1, name: 1 },
+  { unique: true, collation: { locale: "en", strength: 2 }, partialFilterExpression: { name: { $type: "string" } } }
+);
 productSchema.index({ tenantId: 1, storeId: 1, sku: 1 });
 productSchema.index({ tenantId: 1, storeId: 1, barcode: 1 });
 productSchema.index({ tenantId: 1, storeId: 1, productType: 1 });

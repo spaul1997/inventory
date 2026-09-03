@@ -19,10 +19,12 @@ import {
   Send,
   X,
 } from "lucide-react";
-import { purchaseEntities } from "../../data/purchaseManagement.js";
+import { formatDisplayDate, purchaseEntities } from "../../data/purchaseManagement.js";
 import { Badge, ConfirmDialog } from "../ui.jsx";
 import { usePurchaseData } from "./PurchaseDataContext.jsx";
 import { useToast } from "../Toast.jsx";
+import { useMasterData } from "../master/MasterDataContext.jsx";
+import { useAuth } from "../../stores/AuthStore.jsx";
 
 const money = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 const PAGE_SIZE = 5;
@@ -47,13 +49,59 @@ const summaryGridCols = {
 
 const rowActionIcons = { Eye, Pencil, Check, X, ArrowRightCircle, Printer, Send, Ban, PackageCheck };
 
+function RejectionReasonDialog({ open, reason, error, onReasonChange, onConfirm, onCancel }) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="w-full max-w-md rounded-md border border-[var(--line)] bg-white p-5 shadow-xl">
+        <h3 className="text-base font-semibold text-[var(--ink)]">Reject with reason</h3>
+        <p className="mt-1 text-sm text-[var(--muted)]">Enter the rejection reason before saving this decision.</p>
+        <label className="mt-4 block text-sm font-medium text-[var(--ink)]">
+          Rejection Reason <span className="text-[var(--danger)]">*</span>
+        </label>
+        <textarea
+          autoFocus
+          value={reason}
+          onChange={(event) => onReasonChange(event.target.value)}
+          rows={4}
+          className={`mt-1.5 w-full rounded-md border bg-white px-3 py-2 text-sm text-[var(--ink)] outline-none focus:border-[var(--primary)] focus:ring-2 ${
+            error ? "border-[var(--danger)] focus:ring-red-100" : "border-[var(--line)] focus:ring-blue-100"
+          }`}
+        />
+        {error && <p className="mt-1 text-xs text-[var(--danger)]">{error}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-md border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-slate-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="rounded-md bg-[var(--danger)] px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+          >
+            Reject
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function isDateColumn(column) {
+  return column.type === "date" || /date/i.test(column.key) || /date/i.test(column.label);
+}
+
 function toCsv(columns, rows) {
   const header = columns.map((col) => col.label).join(",");
   const lines = rows.map((row) =>
     columns
       .map((col) => {
         const value = col.render ? col.render(row) : row[col.key];
-        const text = value === undefined || value === null ? "" : String(value);
+        const text = value === undefined || value === null ? "" : String(isDateColumn(col) ? formatDisplayDate(value) : value);
         return `"${text.replace(/"/g, '""')}"`;
       })
       .join(",")
@@ -63,10 +111,13 @@ function toCsv(columns, rows) {
 
 export function PurchaseList({ entityKey }) {
   const entity = purchaseEntities[entityKey];
-  const { getRows, updateRow, addRow } = usePurchaseData();
+  const { getRows, updateRow } = usePurchaseData();
+  const masterData = useMasterData();
+  const { session } = useAuth();
   const showToast = useToast();
   const navigate = useNavigate();
   const rows = getRows(entityKey);
+  const authUserName = session?.user?.name || "You";
 
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -75,7 +126,11 @@ export function PurchaseList({ entityKey }) {
   const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(1);
   const [openMenuFor, setOpenMenuFor] = useState(null);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const [confirmAction, setConfirmAction] = useState(null);
+  const [reasonAction, setReasonAction] = useState(null);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [rejectionReasonError, setRejectionReasonError] = useState("");
   const menuRef = useRef(null);
 
   useEffect(() => {
@@ -133,6 +188,20 @@ export function PurchaseList({ entityKey }) {
     showToast(`Exported ${filteredRows.length} row(s).`);
   }
 
+  function filterOptions(filter) {
+    if (!filter.optionsFrom) return filter.options || [];
+
+    return [
+      ...new Set(
+        masterData
+          .getRows(filter.optionsFrom)
+          .filter((row) => row.status !== "Inactive")
+          .map((row) => row.name || row.storeName || row.code)
+          .filter(Boolean)
+      ),
+    ];
+  }
+
   function runAction(action, row) {
     setOpenMenuFor(null);
 
@@ -153,6 +222,12 @@ export function PurchaseList({ entityKey }) {
       return;
     }
     if (action.setStatus) {
+      if (action.requiresReason) {
+        setReasonAction({ action, row });
+        setRejectionReason("");
+        setRejectionReasonError("");
+        return;
+      }
       if (action.confirm) {
         setConfirmAction({ action, row });
         return;
@@ -161,13 +236,65 @@ export function PurchaseList({ entityKey }) {
     }
   }
 
-  function applyStatusChange(action, row) {
+  function toggleActionMenu(rowId, event) {
+    event.stopPropagation();
+
+    if (openMenuFor === rowId) {
+      setOpenMenuFor(null);
+      return;
+    }
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    setMenuPosition({
+      top: rect.bottom + 4,
+      left: Math.max(12, rect.right - 192),
+    });
+    setOpenMenuFor(rowId);
+  }
+
+  function approvalPatch(action, reason = "") {
+    if (action.approvalAction === "approve") {
+      return {
+        approvedBy: authUserName,
+        approvalDate: new Date().toISOString().slice(0, 10),
+        rejectedBy: "",
+        rejectionDate: "",
+        rejectionReason: "",
+      };
+    }
+    if (action.approvalAction === "reject") {
+      return {
+        rejectedBy: authUserName,
+        rejectionDate: new Date().toISOString().slice(0, 10),
+        rejectionReason: reason,
+        approvedBy: "",
+        approvalDate: "",
+      };
+    }
+    return {};
+  }
+
+  function applyStatusChange(action, row, options = {}) {
+    const date = new Date().toISOString().slice(0, 10);
     updateRow(entityKey, row.id, {
       status: action.setStatus,
-      activity: [...(row.activity || []), { event: action.setStatus, date: new Date().toISOString().slice(0, 10), by: "You" }],
+      ...approvalPatch(action, options.reason),
+      activity: [...(row.activity || []), { event: action.setStatus, date, by: authUserName, ...(options.reason ? { reason: options.reason } : {}) }],
     });
     showToast(`${row.id} marked as ${action.setStatus}.`);
     setConfirmAction(null);
+    setReasonAction(null);
+    setRejectionReason("");
+    setRejectionReasonError("");
+  }
+
+  function confirmReasonAction() {
+    const reason = rejectionReason.trim();
+    if (!reason) {
+      setRejectionReasonError("Rejection reason is required.");
+      return;
+    }
+    applyStatusChange(reasonAction.action, reasonAction.row, { reason });
   }
 
   return (
@@ -241,7 +368,7 @@ export function PurchaseList({ entityKey }) {
               className="rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm text-[var(--ink)] outline-none focus:border-[var(--primary)]"
             >
               <option value="">{filter.label}: All</option>
-              {filter.options.map((option) => (
+              {filterOptions(filter).map((option) => (
                 <option key={option} value={option}>
                   {option}
                 </option>
@@ -333,23 +460,24 @@ export function PurchaseList({ entityKey }) {
                     <tr key={row.id} className="border-b border-slate-100 hover:bg-slate-50/60">
                       {entity.list.columns.map((col) => {
                         const value = col.render ? col.render(row) : row[col.key];
+                        const displayValue = isDateColumn(col) ? formatDisplayDate(value) : value;
                         return (
                           <td key={col.key} className={`px-3 py-3 first:pl-4 ${col.align === "right" ? "text-right" : ""}`}>
                             {col.badge ? (
-                              <Badge>{value}</Badge>
+                              <Badge>{displayValue}</Badge>
                             ) : col.link ? (
                               <Link
                                 to={`/purchase-management/${entityKey}/${row.id}/view`}
                                 className={`font-medium text-[var(--primary)] hover:underline ${col.mono ? "font-mono text-xs" : ""}`}
                               >
-                                {value}
+                                {displayValue}
                               </Link>
                             ) : col.mono ? (
-                              <span className="font-mono text-xs">{value}</span>
+                              <span className="font-mono text-xs">{displayValue}</span>
                             ) : col.money ? (
-                              money.format(value)
+                              money.format(displayValue)
                             ) : (
-                              value
+                              displayValue
                             )}
                           </td>
                         );
@@ -357,7 +485,8 @@ export function PurchaseList({ entityKey }) {
                       <td className="relative px-3 py-3 text-right">
                         <button
                           type="button"
-                          onClick={() => setOpenMenuFor(openMenuFor === row.id ? null : row.id)}
+                          onMouseDown={(event) => event.stopPropagation()}
+                          onClick={(event) => toggleActionMenu(row.id, event)}
                           className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--muted)] hover:bg-slate-100 hover:text-[var(--ink)]"
                           aria-label="Row actions"
                         >
@@ -366,7 +495,9 @@ export function PurchaseList({ entityKey }) {
                         {openMenuFor === row.id && (
                           <div
                             ref={menuRef}
-                            className="absolute right-3 top-full z-20 mt-1 w-48 overflow-hidden rounded-md border border-[var(--line)] bg-white text-left shadow-lg"
+                            onMouseDown={(event) => event.stopPropagation()}
+                            className="fixed z-50 w-48 overflow-hidden rounded-md border border-[var(--line)] bg-white text-left shadow-lg"
+                            style={{ top: menuPosition.top, left: menuPosition.left }}
                           >
                             {actions.map((action) => {
                               const Icon = rowActionIcons[action.icon] || Eye;
@@ -430,6 +561,21 @@ export function PurchaseList({ entityKey }) {
         confirmLabel={confirmAction?.action.label}
         onConfirm={() => applyStatusChange(confirmAction.action, confirmAction.row)}
         onCancel={() => setConfirmAction(null)}
+      />
+      <RejectionReasonDialog
+        open={Boolean(reasonAction)}
+        reason={rejectionReason}
+        error={rejectionReasonError}
+        onReasonChange={(reason) => {
+          setRejectionReason(reason);
+          if (rejectionReasonError) setRejectionReasonError("");
+        }}
+        onConfirm={confirmReasonAction}
+        onCancel={() => {
+          setReasonAction(null);
+          setRejectionReason("");
+          setRejectionReasonError("");
+        }}
       />
     </div>
   );

@@ -1,6 +1,6 @@
 // Config + sample data for the Stock Management module. Follows the same
 // config-driven pattern as Master/Purchase Management. Adds a per-warehouse
-// stock ledger on top of Master Management's raw-material aggregate stock
+// stock ledger on top of Master Management's Product / Item aggregate stock
 // (see components/stock/StockDataContext.jsx for how the two stay in sync).
 import { masterEntities } from "./masterManagement.js";
 import { materials, materialByCode, warehouses, suppliers } from "./purchaseManagement.js";
@@ -8,7 +8,7 @@ import { materials, materialByCode, warehouses, suppliers } from "./purchaseMana
 export { materials, materialByCode, warehouses, suppliers };
 
 export const initialBalances = {};
-masterEntities["raw-material"].list.rows.forEach((row) => {
+masterEntities["product-item"].list.rows.forEach((row) => {
   initialBalances[row.code] = { "Raw Material Store": row.stock };
 });
 
@@ -349,7 +349,7 @@ export const stockEntities = {
               totals: "stockOut",
               stockAware: true,
               columns: [
-                { key: "code", label: "Item Code", type: "material-select" },
+                { key: "code", label: "Item Name", type: "material-select" },
                 { key: "name", label: "Item", type: "text", readOnly: true },
                 { key: "available", label: "Available Stock", type: "available-stock" },
                 { key: "batch", label: "Batch", type: "text" },

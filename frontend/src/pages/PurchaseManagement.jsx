@@ -2,13 +2,8 @@ import React, { useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import { FileText, IndianRupee, PackageCheck, Plus, ShoppingCart, Undo2 } from "lucide-react";
 import {
-  purchaseRequests,
-  purchaseOrders,
-  goodsReceipts,
-  purchaseReturns,
   purchaseEntities,
   poTotals,
-  materialByCode,
 } from "../data/purchaseManagement.js";
 import { PurchaseSidebar } from "../components/purchase/PurchaseSidebar.jsx";
 import { PurchaseList } from "../components/purchase/PurchaseList.jsx";
@@ -19,6 +14,7 @@ import { Badge, Metric, Panel } from "../components/ui.jsx";
 import { usePurchaseData } from "../components/purchase/PurchaseDataContext.jsx";
 
 const money = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
+const editLockedStatuses = ["Approved", "Rejected", "Ordered", "Partially Received", "Received", "Returned", "Cancelled", "Completed"];
 
 function PurchaseLayout({ children }) {
   return (
@@ -153,16 +149,17 @@ export function PurchaseManagementFormPage({ mode }) {
 const detailTabs = ["Overview", "Items", "Goods Receipts", "Purchase Returns", "Payments", "Documents", "Activity Log"];
 
 function PurchaseOrderDetails({ id }) {
-  const { getRecord } = usePurchaseData();
+  const purchaseData = usePurchaseData();
   const [tab, setTab] = useState("Overview");
-  const po = getRecord("purchase-order", id);
+  const po = purchaseData.getRecord("purchase-order", id);
 
   if (!po) return <Navigate to="/purchase-management/purchase-order" replace />;
 
   const totals = poTotals(po.items);
-  const relatedReceipts = goodsReceipts.filter((g) => g.refPO === po.id);
-  const relatedReturns = purchaseReturns.filter((r) => r.refPO === po.id);
+  const relatedReceipts = purchaseData.getRows("goods-receipt").filter((g) => g.refPO === po.id);
+  const relatedReturns = purchaseData.getRows("purchase-return").filter((r) => r.refPO === po.id);
   const paid = po.status === "Received" ? totals.grandTotal : po.status === "Partially Received" ? totals.grandTotal * 0.4 : 0;
+  const canEditRecord = !editLockedStatuses.includes(po.status);
 
   return (
     <div>
@@ -183,9 +180,11 @@ function PurchaseOrderDetails({ id }) {
           <button type="button" onClick={() => window.print()} className="rounded-md border border-[var(--line)] bg-white px-3.5 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-slate-50">
             Print
           </button>
-          <Link to={`/purchase-management/purchase-order/${po.id}/edit`} className="rounded-md bg-[var(--primary)] px-3.5 py-2 text-sm font-semibold text-white hover:bg-[var(--primary-deep)]">
-            Edit
-          </Link>
+          {canEditRecord && (
+            <Link to={`/purchase-management/purchase-order/${po.id}/edit`} className="rounded-md bg-[var(--primary)] px-3.5 py-2 text-sm font-semibold text-white hover:bg-[var(--primary-deep)]">
+              Edit
+            </Link>
+          )}
         </div>
       </div>
 
@@ -226,6 +225,10 @@ function PurchaseOrderDetails({ id }) {
                 <InfoRow label="Delivery Terms" value={po.deliveryTerms} />
                 <InfoRow label="Prepared By" value={po.preparedBy} />
                 <InfoRow label="Approved By" value={po.approvedBy} />
+                <InfoRow label="Approval Date" value={po.approvalDate} />
+                <InfoRow label="Rejected By" value={po.rejectedBy} />
+                <InfoRow label="Rejection Date" value={po.rejectionDate} />
+                <InfoRow label="Rejection Reason" value={po.rejectionReason} />
                 <InfoRow label="Grand Total" value={money.format(totals.grandTotal)} />
               </div>
             </div>

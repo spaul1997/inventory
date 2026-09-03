@@ -35,7 +35,7 @@ function initialEntityState() {
 }
 
 // Sales' own lightweight per-product reservation ledger. Deliberately NOT an
-// extension of StockDataContext (raw-material-only, warehouse-broken-down —
+// extension of StockDataContext (warehouse-broken-down —
 // extending it would mean redesigning an unrelated module's internals). Real
 // stock decrements/increments still go through Master Management's
 // product-item.stock via masterData.updateRow, same call shape Manufacturing's
