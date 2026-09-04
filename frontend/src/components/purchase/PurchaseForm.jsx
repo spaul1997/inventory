@@ -625,6 +625,12 @@ function fieldSpanClass(field) {
   return "sm:col-span-6 lg:col-span-4";
 }
 
+function isFieldVisible(field, values) {
+  if (field.showWhen && !field.showWhen(values)) return false;
+  if (field.hideWhen && field.hideWhen(values)) return false;
+  return true;
+}
+
 export function PurchaseForm({ entityKey, mode, recordId }) {
   const entity = purchaseEntities[entityKey];
   const purchaseData = usePurchaseData();
@@ -683,8 +689,11 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
   const [reasonAction, setReasonAction] = useState(null);
   const [rejectionReason, setRejectionReason] = useState("");
   const [rejectionReasonError, setRejectionReasonError] = useState("");
-  const itemRows = filterItemRows(masterData.getRows("product-item"), values.department);
-  const visibleTabs = entity.form.tabs.filter((tab) => !(entityKey === "purchase-request" && mode === "create" && tab.key === "approval"));
+  const itemRows = filterItemRows(masterData.getRows("product-item"));
+  const visibleTabs = entity.form.tabs
+    .filter((tab) => !(entityKey === "purchase-request" && mode === "create" && tab.key === "approval"))
+    .map((tab) => ({ ...tab, fields: tab.fields.filter((field) => isFieldVisible(field, values)) }))
+    .filter((tab) => tab.fields.length > 0);
   const visibleFormActions = entity.formActions.filter((action) => {
     if (action.showWhen && !action.showWhen(values)) return false;
     if (action.hideWhen && action.hideWhen(values)) return false;
@@ -772,11 +781,6 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
           const selectedCodes = (Array.isArray(values[field.key]) ? values[field.key] : []).map((item) => item.code).filter(Boolean);
           const hasDuplicateCode = selectedCodes.some((code, index) => selectedCodes.indexOf(code) !== index);
           if (hasDuplicateCode) nextErrors[field.key] = "Same item cannot be added more than once.";
-          if (entityKey === "purchase-request" && values.department) {
-            const availableCodes = new Set(itemRows.map((item) => item.code));
-            const unavailableCode = selectedCodes.find((code) => !availableCodes.has(code));
-            if (unavailableCode) nextErrors[field.key] = "Selected item does not belong to the selected department.";
-          }
         }
       });
     });
@@ -832,34 +836,53 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
     return {};
   }
 
-  function executeAction(action, options = {}) {
+  function statusPatch(status) {
+    if (status === "Received") {
+      return {
+        receivedBy: authUserName,
+        receivedDate: today(),
+      };
+    }
+    return {};
+  }
+
+  async function executeAction(action, options = {}) {
+    const status = action.status || values.status;
     const record = {
       ...values,
       ...(entityKey === "purchase-request" && mode === "create" ? { requestedBy: authUserName } : {}),
-      status: action.status || values.status,
+      status,
       ...approvalPatch(action, options.reason),
+      ...statusPatch(status),
       activity: [...(values.activity || []), { event: action.status || "Updated", date: today(), by: authUserName }],
     };
 
-    if (action.updatesStock) applyStockUpdate(action.updatesStock);
+    try {
+      if (action.updatesStock) applyStockUpdate(action.updatesStock);
 
-    if (mode === "edit") purchaseData.updateRow(entityKey, recordId, record);
-    else purchaseData.addRow(entityKey, record);
+      if (mode === "edit") await purchaseData.updateRow(entityKey, recordId, record);
+      else await purchaseData.addRow(entityKey, record);
 
-    if (entityKey === "purchase-order" && mode !== "edit" && convertFrom?.entityKey === "purchase-request" && action.status !== "Draft") {
-      const source = convertFrom.record;
-      purchaseData.updateRow("purchase-request", source.id, {
-        status: "Received",
-        activity: [...(source.activity || []), { event: "Received", date: today(), by: authUserName }],
-      });
+      if (entityKey === "purchase-order" && mode !== "edit" && convertFrom?.entityKey === "purchase-request" && action.status !== "Draft") {
+        const source = convertFrom.record;
+        await purchaseData.updateRow("purchase-request", source.id, {
+          status: "Received",
+          receivedBy: authUserName,
+          receivedDate: today(),
+          activity: [...(source.activity || []), { event: "Received", date: today(), by: authUserName }],
+        });
+      }
+
+      showToast(action.status ? `${values.id} updated to "${action.status}".` : mode === "edit" ? `${values.id} updated.` : `${entity.singular} saved.`);
+      setPendingAction(null);
+      setReasonAction(null);
+      setRejectionReason("");
+      setRejectionReasonError("");
+      navigate(`/purchase-management/${entityKey}`);
+    } catch (error) {
+      setErrorBanner(error.message || `Unable to save ${entity.singular}.`);
+      showToast(error.message || `Unable to save ${entity.singular}.`, "error");
     }
-
-    showToast(action.status ? `${values.id} updated to "${action.status}".` : mode === "edit" ? `${values.id} updated.` : `${entity.singular} saved.`);
-    setPendingAction(null);
-    setReasonAction(null);
-    setRejectionReason("");
-    setRejectionReasonError("");
-    navigate(`/purchase-management/${entityKey}`);
   }
 
   function handleAction(action) {

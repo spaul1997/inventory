@@ -259,7 +259,7 @@ function BusinessDataProviders({ storageScope, children }) {
 
   return (
     <MasterDataProvider storageScope={storageScope} token={session?.token}>
-      <PurchaseDataProvider storageScope={storageScope}>
+      <PurchaseDataProvider storageScope={storageScope} token={session?.token}>
         <StockDataProvider storageScope={storageScope}>
           <ManufacturingDataProvider storageScope={storageScope}>
             <SalesDataProvider storageScope={storageScope}>

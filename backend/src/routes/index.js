@@ -19,6 +19,11 @@ import {
   updateMasterRow,
   updateProductItem,
 } from "../controllers/master.controller.js";
+import {
+  createPurchaseDocument,
+  listPurchaseDocuments,
+  updatePurchaseDocument,
+} from "../controllers/purchaseManagement.controller.js";
 
 const router = Router();
 
@@ -358,6 +363,12 @@ router.get("/master/:masterEntity", requireAuth, requireCompanyUser, listMasterR
 router.post("/master/:masterEntity", requireAuth, requireCompanyUser, createMasterRow);
 
 router.put("/master/:masterEntity/:code", requireAuth, requireCompanyUser, updateMasterRow);
+
+router.get("/purchase-management/:entityKey", requireAuth, requireCompanyUser, listPurchaseDocuments);
+
+router.post("/purchase-management/:entityKey", requireAuth, requireCompanyUser, createPurchaseDocument);
+
+router.put("/purchase-management/:entityKey/:id", requireAuth, requireCompanyUser, updatePurchaseDocument);
 
 router.get("/saas-admin/dashboard", requireSpecialAdmin, async (req, res, next) => {
   try {

@@ -274,18 +274,33 @@ export function PurchaseList({ entityKey }) {
     return {};
   }
 
-  function applyStatusChange(action, row, options = {}) {
+  function statusPatch(status, date) {
+    if (status === "Received") {
+      return {
+        receivedBy: authUserName,
+        receivedDate: date,
+      };
+    }
+    return {};
+  }
+
+  async function applyStatusChange(action, row, options = {}) {
     const date = new Date().toISOString().slice(0, 10);
-    updateRow(entityKey, row.id, {
-      status: action.setStatus,
-      ...approvalPatch(action, options.reason),
-      activity: [...(row.activity || []), { event: action.setStatus, date, by: authUserName, ...(options.reason ? { reason: options.reason } : {}) }],
-    });
-    showToast(`${row.id} marked as ${action.setStatus}.`);
-    setConfirmAction(null);
-    setReasonAction(null);
-    setRejectionReason("");
-    setRejectionReasonError("");
+    try {
+      await updateRow(entityKey, row.id, {
+        status: action.setStatus,
+        ...approvalPatch(action, options.reason),
+        ...statusPatch(action.setStatus, date),
+        activity: [...(row.activity || []), { event: action.setStatus, date, by: authUserName, ...(options.reason ? { reason: options.reason } : {}) }],
+      });
+      showToast(`${row.id} marked as ${action.setStatus}.`);
+      setConfirmAction(null);
+      setReasonAction(null);
+      setRejectionReason("");
+      setRejectionReasonError("");
+    } catch (error) {
+      showToast(error.message || `Unable to update ${row.id}.`, "error");
+    }
   }
 
   function confirmReasonAction() {

@@ -1,6 +1,12 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo } from "react";
 import { purchaseEntities } from "../../data/purchaseManagement.js";
 import { useScopedState } from "../../lib/scopedStorage.js";
+import {
+  createPurchaseRow,
+  hasPurchaseApiEntity,
+  listPurchaseRows,
+  updatePurchaseRow,
+} from "../../services/purchaseService.js";
 
 const PurchaseDataContext = createContext(null);
 const demoPurchaseRequests = [
@@ -24,8 +30,33 @@ function initialState() {
   return state;
 }
 
-export function PurchaseDataProvider({ children, storageScope }) {
+export function PurchaseDataProvider({ children, storageScope, token }) {
   const [data, setData] = useScopedState(storageScope, "purchase-data", initialState);
+
+  useEffect(() => {
+    if (!token || !storageScope) return undefined;
+
+    let mounted = true;
+    const entityKeys = Object.keys(purchaseEntities).filter(hasPurchaseApiEntity);
+
+    Promise.allSettled(
+      entityKeys.map(async (entityKey) => {
+        const rows = await listPurchaseRows(entityKey, token);
+        return { entityKey, rows };
+      })
+    ).then((results) => {
+      if (!mounted) return;
+
+      results.forEach((result) => {
+        if (result.status !== "fulfilled") return;
+        setData((prev) => ({ ...prev, [result.value.entityKey]: result.value.rows }));
+      });
+    });
+
+    return () => {
+      mounted = false;
+    };
+  }, [setData, storageScope, token]);
 
   const normalizedData = useMemo(() => {
     const requestRows = data["purchase-request"] || [];
@@ -45,16 +76,33 @@ export function PurchaseDataProvider({ children, storageScope }) {
   const getRows = useCallback((entityKey) => normalizedData[entityKey] || [], [normalizedData]);
   const getRecord = useCallback((entityKey, id) => (normalizedData[entityKey] || []).find((row) => row.id === id), [normalizedData]);
 
-  const addRow = useCallback((entityKey, record) => {
-    setData((prev) => ({ ...prev, [entityKey]: [{ ...record }, ...prev[entityKey]] }));
-  }, []);
+  const addRow = useCallback(async (entityKey, record) => {
+    if (token && hasPurchaseApiEntity(entityKey)) {
+      const row = await createPurchaseRow(entityKey, record, token);
+      setData((prev) => ({ ...prev, [entityKey]: [row, ...(prev[entityKey] || [])] }));
+      return row;
+    }
 
-  const updateRow = useCallback((entityKey, id, patch) => {
+    setData((prev) => ({ ...prev, [entityKey]: [{ ...record }, ...prev[entityKey]] }));
+    return record;
+  }, [setData, token]);
+
+  const updateRow = useCallback(async (entityKey, id, patch) => {
+    if (token && hasPurchaseApiEntity(entityKey)) {
+      const row = await updatePurchaseRow(entityKey, id, patch, token);
+      setData((prev) => ({
+        ...prev,
+        [entityKey]: (prev[entityKey] || []).map((item) => (item.id === id ? row : item)),
+      }));
+      return row;
+    }
+
     setData((prev) => ({
       ...prev,
       [entityKey]: prev[entityKey].map((row) => (row.id === id ? { ...row, ...patch } : row)),
     }));
-  }, []);
+    return patch;
+  }, [setData, token]);
 
   const value = useMemo(() => ({ getRows, getRecord, addRow, updateRow }), [getRows, getRecord, addRow, updateRow]);
 
