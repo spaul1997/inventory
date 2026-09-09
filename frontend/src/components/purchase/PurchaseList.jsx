@@ -28,6 +28,7 @@ import { useAuth } from "../../stores/AuthStore.jsx";
 
 const money = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 const PAGE_SIZE = 5;
+const poCoverageStatuses = new Set(["Pending Approval", "Approved", "Ordered", "Partially Received", "Received"]);
 
 const summaryTones = {
   primary: "text-[var(--primary)] bg-blue-50",
@@ -48,6 +49,14 @@ const summaryGridCols = {
 };
 
 const rowActionIcons = { Eye, Pencil, Check, X, ArrowRightCircle, Printer, Send, Ban, PackageCheck };
+
+function uniqueOptions(values) {
+  return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
+function optionValues(value) {
+  return (Array.isArray(value) ? value : [value]).map((item) => String(item || "").trim()).filter(Boolean);
+}
 
 function RejectionReasonDialog({ open, reason, error, onReasonChange, onConfirm, onCancel }) {
   if (!open) return null;
@@ -284,15 +293,129 @@ export function PurchaseList({ entityKey }) {
     return {};
   }
 
+  function purchaseOrderCoverageRows({ includeRecord = null, excludeId = "" } = {}) {
+    const purchaseOrderRows = getRows("purchase-order").filter((row) => row.id !== excludeId && row.id !== includeRecord?.id);
+    const mergedRows = includeRecord ? [includeRecord, ...purchaseOrderRows] : purchaseOrderRows;
+    return mergedRows.filter((row) => poCoverageStatuses.has(row.status));
+  }
+
+  function getPurchaseRequest(requestId) {
+    return getRows("purchase-request").find((request) => request.id === requestId);
+  }
+
+  function requestQtyForCode(requestId, code) {
+    const request = getPurchaseRequest(requestId);
+    return (request?.items || []).filter((item) => item.code === code).reduce((sum, item) => sum + (Number(item.qty) || 0), 0);
+  }
+
+  function itemAllocationsForPurchaseOrder(po, item) {
+    const explicitAllocations = Array.isArray(item.sourcePRAllocations)
+      ? item.sourcePRAllocations
+          .map((allocation) => ({ requestId: allocation.requestId || allocation.refPR || allocation.id, qty: Number(allocation.qty) || 0 }))
+          .filter((allocation) => allocation.requestId && allocation.qty > 0)
+      : [];
+
+    if (explicitAllocations.length > 0) return explicitAllocations;
+
+    const refIds = optionValues(po.refPR);
+    const qty = Number(item.qty) || 0;
+    if (!item.code || qty <= 0 || refIds.length === 0) return [];
+    if (refIds.length === 1) return [{ requestId: refIds[0], qty }];
+
+    let remainingQty = qty;
+    const inferredAllocations = [];
+    refIds.forEach((requestId) => {
+      if (remainingQty <= 0) return;
+      const availableForRequest = requestQtyForCode(requestId, item.code);
+      if (availableForRequest <= 0) return;
+      const allocatedQty = Math.min(remainingQty, availableForRequest);
+      inferredAllocations.push({ requestId, qty: allocatedQty });
+      remainingQty -= allocatedQty;
+    });
+    return inferredAllocations;
+  }
+
+  function orderedQtyForRequestItem(requestId, code, coverageRows) {
+    return coverageRows.reduce((sum, po) => {
+      return (
+        sum +
+        (po.items || []).reduce((itemSum, item) => {
+          if (item.code !== code) return itemSum;
+          return (
+            itemSum +
+            itemAllocationsForPurchaseOrder(po, item)
+              .filter((allocation) => allocation.requestId === requestId)
+              .reduce((allocationSum, allocation) => allocationSum + (Number(allocation.qty) || 0), 0)
+          );
+        }, 0)
+      );
+    }, 0);
+  }
+
+  function remainingPurchaseRequestItems(requestId, coverageRows) {
+    const request = getPurchaseRequest(requestId);
+    if (!request) return [];
+
+    return (request.items || [])
+      .map((item) => {
+        const requestedQty = Number(item.qty) || 0;
+        const orderedQty = orderedQtyForRequestItem(requestId, item.code, coverageRows);
+        const remainingQty = Math.max(0, requestedQty - orderedQty);
+        return remainingQty > 0 ? { ...item, requestedQty, orderedQty, qty: remainingQty } : null;
+      })
+      .filter(Boolean);
+  }
+
+  async function updateLinkedPurchaseRequestCoverage(previousRecord, updatedRecord, date, time) {
+    if (entityKey !== "purchase-order") return;
+
+    const affectedRequestIds = uniqueOptions([...optionValues(previousRecord?.refPR), ...optionValues(updatedRecord?.refPR)]);
+    if (affectedRequestIds.length === 0) return;
+
+    const coverageRows = purchaseOrderCoverageRows({ includeRecord: updatedRecord });
+    await Promise.all(
+      affectedRequestIds.map((requestId) => {
+        const request = getPurchaseRequest(requestId);
+        if (!request || !["Approved", "Received"].includes(request.status)) return Promise.resolve();
+
+        const hasRemaining = remainingPurchaseRequestItems(requestId, coverageRows).length > 0;
+        if (!hasRemaining && request.status !== "Received") {
+          return updateRow("purchase-request", request.id, {
+            status: "Received",
+            receivedBy: authUserName,
+            receivedDate: date,
+            activity: [...(request.activity || []), { event: "Received", date, time, by: authUserName }],
+          });
+        }
+
+        if (hasRemaining && request.status === "Received") {
+          return updateRow("purchase-request", request.id, {
+            status: "Approved",
+            receivedBy: "",
+            receivedDate: "",
+            activity: (request.activity || []).filter((entry) => entry.event !== "Received"),
+          });
+        }
+
+        return Promise.resolve();
+      })
+    );
+  }
+
   async function applyStatusChange(action, row, options = {}) {
     const date = new Date().toISOString().slice(0, 10);
+    const time = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+    const updatedRow = {
+      ...row,
+      status: action.setStatus,
+      ...approvalPatch(action, options.reason),
+      ...statusPatch(action.setStatus, date),
+      activity: [...(row.activity || []), { event: action.setStatus, date, time, by: authUserName, ...(options.reason ? { reason: options.reason } : {}) }],
+    };
+
     try {
-      await updateRow(entityKey, row.id, {
-        status: action.setStatus,
-        ...approvalPatch(action, options.reason),
-        ...statusPatch(action.setStatus, date),
-        activity: [...(row.activity || []), { event: action.setStatus, date, by: authUserName, ...(options.reason ? { reason: options.reason } : {}) }],
-      });
+      await updateRow(entityKey, row.id, updatedRow);
+      await updateLinkedPurchaseRequestCoverage(row, updatedRow, date, time);
       showToast(`${row.id} marked as ${action.setStatus}.`);
       setConfirmAction(null);
       setReasonAction(null);
@@ -574,6 +697,7 @@ export function PurchaseList({ entityKey }) {
         title={confirmAction?.action.confirm || "Are you sure?"}
         message={`This will update ${confirmAction?.row.id} to "${confirmAction?.action.setStatus}".`}
         confirmLabel={confirmAction?.action.label}
+        tone={confirmAction?.action.tone}
         onConfirm={() => applyStatusChange(confirmAction.action, confirmAction.row)}
         onCancel={() => setConfirmAction(null)}
       />

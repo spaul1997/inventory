@@ -131,14 +131,6 @@ export function PurchaseManagementFormPage({ mode }) {
   const { entity, id } = useParams();
   if (!purchaseEntities[entity]) return <Navigate to="/purchase-management" replace />;
 
-  if (entity === "purchase-order" && mode === "view" && id) {
-    return (
-      <PurchaseLayout>
-        <PurchaseOrderDetails id={id} />
-      </PurchaseLayout>
-    );
-  }
-
   return (
     <PurchaseLayout>
       <PurchaseForm entityKey={entity} mode={mode} recordId={id} />

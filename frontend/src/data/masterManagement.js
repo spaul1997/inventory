@@ -618,13 +618,13 @@ export const masterEntities = {
         {
           key: "address",
           label: "Address",
-          columns: 4,
+          columns: 5,
           fields: [
             { key: "city", label: "City", type: "text" },
             { key: "state", label: "State", type: "select", searchable: true, optionsFromLocation: "states", clearOnChange: ["district"] },
             { key: "district", label: "District", type: "select", searchable: true, optionsFromLocation: "districts", dependsOn: "state" },
             { key: "pincode", label: "Pincode", type: "text" },
-            { key: "addressLine", label: "Address", type: "textarea", span: "full" },
+            { key: "addressLine", label: "Address", type: "text" },
           ],
         },
         {

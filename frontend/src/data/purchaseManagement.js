@@ -356,7 +356,7 @@ export const purchaseEntities = {
       rowActions: [
         { key: "view", label: "View", icon: "Eye" },
         { key: "edit", label: "Edit", icon: "Pencil", hideWhen: (row) => ["Approved", "Rejected", "Received", "Cancelled"].includes(row.status) },
-        { key: "approve", label: "Approve", icon: "Check", tone: "success", showWhen: (row) => row.status === "Pending Approval", setStatus: "Approved", approvalAction: "approve" },
+        { key: "approve", label: "Approve", icon: "Check", tone: "success", showWhen: (row) => row.status === "Pending Approval", setStatus: "Approved", approvalAction: "approve", confirm: "Approve this purchase request?" },
         { key: "reject", label: "Reject", icon: "X", tone: "danger", showWhen: (row) => row.status === "Pending Approval", setStatus: "Rejected", approvalAction: "reject", requiresReason: true },
         { key: "receive", label: "Received", icon: "PackageCheck", tone: "success", showWhen: (row) => row.status === "Approved", setStatus: "Received" },
         { key: "convert", label: "Convert to PO", icon: "ArrowRightCircle", showWhen: (row) => row.status === "Approved", convertsTo: "purchase-order" },
@@ -417,7 +417,7 @@ export const purchaseEntities = {
       { key: "cancel", label: "Cancel", kind: "ghost" },
       { key: "saveDraft", label: "Save Draft", kind: "outline", status: "Draft", showWhen: (row) => row.status === "Draft" },
       { key: "submit", label: "Submit for Approval", kind: "primary", status: "Pending Approval", validate: true, showWhen: (row) => row.status === "Draft" },
-      { key: "approve", label: "Approve", kind: "primary", status: "Approved", validate: true, showWhen: (row) => row.status === "Pending Approval", approvalAction: "approve" },
+      { key: "approve", label: "Approve", kind: "primary", tone: "success", status: "Approved", validate: true, showWhen: (row) => row.status === "Pending Approval", approvalAction: "approve", confirm: "Approve this purchase request?" },
       { key: "reject", label: "Reject", kind: "outline", tone: "danger", status: "Rejected", showWhen: (row) => row.status === "Pending Approval", approvalAction: "reject", requiresReason: true },
     ],
   },
@@ -459,38 +459,24 @@ export const purchaseEntities = {
         { key: "view", label: "View", icon: "Eye" },
         { key: "edit", label: "Edit", icon: "Pencil", hideWhen: (row) => ["Approved", "Rejected", "Ordered", "Partially Received", "Received", "Cancelled", "Returned"].includes(row.status) },
         { key: "print", label: "Print", icon: "Printer", print: true },
-        { key: "approve", label: "Approve", icon: "Check", tone: "success", showWhen: (row) => row.status === "Pending Approval", setStatus: "Approved", approvalAction: "approve" },
+        { key: "approve", label: "Approve", icon: "Check", tone: "success", showWhen: (row) => row.status === "Pending Approval", setStatus: "Approved", approvalAction: "approve", confirm: "Approve this purchase order?" },
         { key: "reject", label: "Reject", icon: "X", tone: "danger", showWhen: (row) => row.status === "Pending Approval", setStatus: "Rejected", approvalAction: "reject", requiresReason: true },
         { key: "received", label: "Received", icon: "PackageCheck", tone: "success", showWhen: (row) => row.status === "Approved", setStatus: "Received" },
         { key: "send", label: "Send to Supplier", icon: "Send", showWhen: (row) => row.status === "Approved", setStatus: "Ordered" },
         { key: "receive", label: "Receive", icon: "PackageCheck", showWhen: (row) => ["Ordered", "Partially Received"].includes(row.status), convertsTo: "goods-receipt" },
-        { key: "cancel", label: "Cancel", icon: "Ban", tone: "danger", hideWhen: (row) => ["Received", "Cancelled"].includes(row.status), setStatus: "Cancelled", confirm: "Cancel this purchase order?" },
+        { key: "cancel", label: "Cancel", icon: "Ban", tone: "danger", hideWhen: (row) => ["Approved", "Rejected", "Received", "Cancelled"].includes(row.status), setStatus: "Cancelled", confirm: "Cancel this purchase order?" },
       ],
     },
     form: {
       tabs: [
         {
-          key: "supplier",
-          label: "Supplier Information",
-          fields: [
-            { key: "supplier", label: "Supplier", type: "select", required: true, options: suppliers },
-            { key: "contact", label: "Contact Person", type: "text", readOnly: true },
-            { key: "phone", label: "Phone", type: "text", readOnly: true },
-            { key: "email", label: "Email", type: "text", readOnly: true },
-            { key: "billingAddress", label: "Billing Address", type: "textarea" },
-            { key: "shippingAddress", label: "Shipping Address", type: "textarea" },
-          ],
-        },
-        {
           key: "order",
           label: "Order Information",
           fields: [
-            { key: "id", label: "PO Number", type: "text", required: true, autoLabel: "Auto-generated" },
-            { key: "date", label: "PO Date", type: "date", required: true },
-            { key: "expectedDate", label: "Expected Delivery Date", type: "date" },
-            { key: "paymentTerms", label: "Payment Terms", type: "select", options: ["Net 15", "Net 30", "Net 45", "Advance"] },
-            { key: "warehouse", label: "Warehouse", type: "select", options: warehouses },
-            { key: "refPR", label: "Reference Purchase Request", type: "select", searchable: true, optionsFromPurchase: "purchase-request" },
+            { key: "date", label: "PO Date", type: "date", required: true, span: "quarter" },
+            { key: "supplier", label: "Supplier", type: "select", required: true, optionsFrom: "supplier", span: "quarter" },
+            { key: "expectedDate", label: "Expected Delivery Date", type: "date", span: "quarter" },
+            { key: "refPR", label: "Purchase Request", type: "select", searchable: true, multiple: true, optionsFromPurchase: "purchase-request", optionStatuses: ["Approved"], span: "quarter" },
           ],
         },
         {
@@ -506,7 +492,6 @@ export const purchaseEntities = {
               totals: true,
               columns: [
                 materialColumn,
-                nameColumn,
                 { key: "qty", label: "Qty", type: "number" },
                 unitColumn,
                 { key: "price", label: "Unit Price", type: "number" },
@@ -518,20 +503,11 @@ export const purchaseEntities = {
           ],
         },
         {
-          key: "terms",
-          label: "Terms & Conditions",
+          key: "delivery",
+          label: "Delivery Information",
           fields: [
-            { key: "deliveryTerms", label: "Delivery Terms", type: "select", options: ["Ex-Works", "FOB", "CIF"] },
-            { key: "warranty", label: "Warranty", type: "text" },
-            { key: "termsNotes", label: "Terms & Conditions", type: "textarea", span: "full" },
-          ],
-        },
-        {
-          key: "attachments",
-          label: "Attachments",
-          fields: [
-            { key: "quotation", label: "Quotation", type: "file" },
-            { key: "supplierDocument", label: "Supplier Document", type: "file" },
+            { key: "warehouse", label: "Warehouse", type: "select", searchable: true, optionsFrom: "warehouse", span: "half" },
+            { key: "deliveryNote", label: "Note", type: "textarea", span: "half", fillHeight: true },
           ],
         },
         {
@@ -553,7 +529,7 @@ export const purchaseEntities = {
     formActions: [
       { key: "saveDraft", label: "Save Draft", kind: "outline", status: "Draft", showWhen: (row) => row.status === "Draft" },
       { key: "submit", label: "Submit for Approval", kind: "outline", status: "Pending Approval", validate: true, showWhen: (row) => row.status === "Draft" },
-      { key: "approve", label: "Approve", kind: "primary", status: "Approved", validate: true, showWhen: (row) => row.status === "Pending Approval", approvalAction: "approve" },
+      { key: "approve", label: "Approve", kind: "primary", tone: "success", status: "Approved", validate: true, showWhen: (row) => row.status === "Pending Approval", approvalAction: "approve", confirm: "Approve this purchase order?" },
       { key: "reject", label: "Reject", kind: "outline", tone: "danger", status: "Rejected", showWhen: (row) => row.status === "Pending Approval", approvalAction: "reject", requiresReason: true },
       { key: "print", label: "Print PO", kind: "outline", print: true },
       { key: "send", label: "Send to Supplier", kind: "primary", status: "Ordered", validate: true, showWhen: (row) => row.status === "Approved" },

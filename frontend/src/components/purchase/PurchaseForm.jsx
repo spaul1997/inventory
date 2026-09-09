@@ -13,9 +13,11 @@ import { DocumentChain } from "./DocumentChain.jsx";
 
 const money = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 });
 const today = () => new Date().toISOString().slice(0, 10);
+const currentTime = () => new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
 
 const idPrefixes = { "purchase-request": "PR", "purchase-order": "PO", "goods-receipt": "GRN", "purchase-return": "RET" };
 const editLockedStatuses = ["Approved", "Rejected", "Ordered", "Partially Received", "Received", "Returned", "Cancelled", "Completed"];
+const poCoverageStatuses = new Set(["Pending Approval", "Approved", "Ordered", "Partially Received", "Received"]);
 
 function nextId(entityKey, rows) {
   const prefix = idPrefixes[entityKey];
@@ -32,6 +34,18 @@ const workflowSteps = {
   "purchase-return": ["Created", "Submitted for Approval", "Approved", "Stock Deducted"],
 };
 
+const rejectedWorkflowSteps = {
+  "purchase-request": ["Created", "Submitted for Approval", "Rejected"],
+  "purchase-order": ["Created", "Submitted for Approval", "Rejected"],
+  "goods-receipt": ["Created", "Submitted for Inspection", "Rejected"],
+  "purchase-return": ["Created", "Submitted for Approval", "Rejected"],
+};
+
+function getWorkflowSteps(entityKey, status) {
+  if (status === "Rejected") return rejectedWorkflowSteps[entityKey] || workflowSteps[entityKey];
+  return workflowSteps[entityKey];
+}
+
 function optionLabel(row) {
   return row.name || row.storeName || row.code || "";
 }
@@ -40,21 +54,30 @@ function uniqueOptions(values) {
   return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
 }
 
+function optionValues(value) {
+  return (Array.isArray(value) ? value : [value]).map((item) => String(item || "").trim()).filter(Boolean);
+}
+
 function resolveFieldOptions(field, getMasterRows, getPurchaseRows, currentValue) {
   if (field.optionsFrom) {
     const entityOptions = getMasterRows(field.optionsFrom)
       .filter((row) => row.status !== "Inactive")
       .map(optionLabel);
 
-    return uniqueOptions([...entityOptions, currentValue]);
+    return uniqueOptions([...entityOptions, ...optionValues(currentValue)]);
   }
 
   if (field.optionsFromPurchase) {
+    const currentValues = optionValues(currentValue);
     const entityOptions = getPurchaseRows(field.optionsFromPurchase)
-      .filter((row) => row.status !== "Cancelled")
+      .filter((row) => {
+        if (currentValues.includes(row.id)) return true;
+        if (field.optionStatuses) return field.optionStatuses.includes(row.status);
+        return row.status !== "Cancelled";
+      })
       .map((row) => row.id);
 
-    return uniqueOptions([...entityOptions, currentValue]);
+    return uniqueOptions([...entityOptions, ...currentValues]);
   }
 
   return field.options || [];
@@ -62,10 +85,7 @@ function resolveFieldOptions(field, getMasterRows, getPurchaseRows, currentValue
 
 function documentLinks(entityKey, values) {
   if (entityKey === "purchase-order") {
-    return [
-      { label: "Purchase Request", id: values.refPR, to: values.refPR && `/purchase-management/purchase-request/${values.refPR}/view` },
-      { label: "Purchase Order", id: values.id },
-    ];
+    return [{ label: "Purchase Order", id: values.id }];
   }
   if (entityKey === "goods-receipt") {
     return [
@@ -284,9 +304,16 @@ function LineItemCell({ column, row, disabled, onChange, materialRows = [], sele
         }
         onChange({ ...row, [column.key]: value });
       }}
-      className="w-full min-w-[90px] rounded border border-[var(--line)] px-2 py-1.5 text-sm"
+      className={`w-full min-w-[90px] rounded border border-[var(--line)] px-2 py-1.5 text-sm ${column.type === "number" ? "text-right" : ""}`}
     />
   );
+}
+
+const lineItemNumericColumnKeys = new Set(["qty", "orderedQty", "receivedQty", "acceptedQty", "rejectedQty", "availableQty", "returnQty", "price", "discount", "tax", "total"]);
+
+function lineItemColumnClass(column) {
+  const numeric = lineItemNumericColumnKeys.has(column.key) || column.type === "computed-line-total";
+  return `purchase-lineitems-col purchase-lineitems-col-${column.key} ${numeric ? "text-right" : ""}`;
 }
 
 function LineItemsField({ field, rows, disabled, onChange, materialRows, hideAddButton = false }) {
@@ -302,12 +329,12 @@ function LineItemsField({ field, rows, disabled, onChange, materialRows, hideAdd
 
   return (
     <div>
-      <div className="overflow-x-auto rounded-md border border-[var(--line)]">
-        <table className="w-full min-w-[700px] text-left text-sm">
+      <div className="purchase-lineitems-wrapper overflow-x-auto rounded-md border border-[var(--line)]">
+        <table className="purchase-lineitems-table w-full min-w-[700px] text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase text-[var(--muted)]">
             <tr>
               {field.columns.map((col) => (
-                <th key={col.key} className="px-2 py-2 first:pl-3">
+                <th key={col.key} className={`px-2 py-2 first:pl-3 ${lineItemColumnClass(col)}`}>
                   {col.label}
                 </th>
               ))}
@@ -325,7 +352,7 @@ function LineItemsField({ field, rows, disabled, onChange, materialRows, hideAdd
             {items.map((row, index) => (
               <tr key={index} className="border-t border-slate-100">
                 {field.columns.map((col) => (
-                  <td key={col.key} className="px-2 py-1.5 first:pl-3">
+                  <td key={col.key} className={`px-2 py-1.5 first:pl-3 ${lineItemColumnClass(col)}`}>
                     <LineItemCell
                       column={col}
                       row={row}
@@ -471,6 +498,94 @@ function SearchableSelect({ field, value, options, disabled, className, onChange
   );
 }
 
+function MultiSearchableSelect({ field, value, options, disabled, className, onChange }) {
+  const selectedValues = optionValues(value);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const rootRef = useRef(null);
+  const filteredOptions = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter((option) => option.toLowerCase().includes(q));
+  }, [options, query]);
+
+  useEffect(() => {
+    if (!open) setQuery("");
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    function handleDocumentMouseDown(event) {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    }
+
+    document.addEventListener("mousedown", handleDocumentMouseDown);
+    return () => document.removeEventListener("mousedown", handleDocumentMouseDown);
+  }, [open]);
+
+  function toggleOption(option) {
+    const next = selectedValues.includes(option) ? selectedValues.filter((item) => item !== option) : [...selectedValues, option];
+    onChange(next);
+  }
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((current) => !current)}
+        className={`${className} flex min-h-[42px] items-center justify-between gap-2 text-left`}
+      >
+        <span className={`flex flex-wrap gap-1 ${selectedValues.length ? "" : "text-slate-400"}`}>
+          {selectedValues.length
+            ? selectedValues.map((item) => (
+                <span key={item} className="rounded-full bg-slate-100 px-2 py-0.5 font-mono text-xs text-[var(--ink)]">
+                  {item}
+                </span>
+              ))
+            : `Select ${field.label.toLowerCase()}...`}
+        </span>
+        <ChevronDown size={16} className={`shrink-0 text-[var(--muted)] transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && !disabled && (
+        <div className="absolute z-40 mt-1 w-full overflow-hidden rounded-md border border-[var(--line)] bg-white shadow-lg">
+          <input
+            autoFocus
+            type="text"
+            value={query}
+            placeholder={`Search ${field.label.toLowerCase()}...`}
+            onChange={(event) => setQuery(event.target.value)}
+            className="w-full border-b border-[var(--line)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+          />
+          <div className="max-h-56 overflow-y-auto py-1">
+            {filteredOptions.length === 0 ? (
+              <p className="px-3 py-2 text-sm text-[var(--muted)]">No options found</p>
+            ) : (
+              filteredOptions.map((option) => {
+                const selected = selectedValues.includes(option);
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => toggleOption(option)}
+                    className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 ${
+                      selected ? "font-semibold text-[var(--primary)]" : "text-[var(--ink)]"
+                    }`}
+                  >
+                    <span>{option}</span>
+                    {selected && <Check size={14} />}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RejectionReasonDialog({ open, reason, error, onReasonChange, onConfirm, onCancel }) {
   if (!open) return null;
 
@@ -555,7 +670,9 @@ function Field({ field, value, error, disabled, onChange, materialRows }) {
           {field.label}
           {field.required && <span className="ml-0.5 text-[var(--danger)]">*</span>}
         </label>
-        {field.searchable ? (
+        {field.searchable && field.multiple ? (
+          <MultiSearchableSelect field={field} value={value} options={options} disabled={fieldDisabled} className={baseInput} onChange={onChange} />
+        ) : field.searchable ? (
           <SearchableSelect field={field} value={value || ""} options={options} disabled={fieldDisabled} className={baseInput} onChange={onChange} />
         ) : (
           <select value={value || ""} disabled={fieldDisabled} onChange={(event) => onChange(event.target.value)} className={baseInput}>
@@ -574,9 +691,15 @@ function Field({ field, value, error, disabled, onChange, materialRows }) {
 
   if (field.type === "textarea") {
     return (
-      <div className={field.span === "full" ? "sm:col-span-2 lg:col-span-3" : ""}>
+      <div className={`${field.span === "full" ? "sm:col-span-2 lg:col-span-3" : ""} ${field.fillHeight ? "flex h-full flex-col" : ""}`}>
         <label className="mb-1.5 block text-sm font-medium text-[var(--ink)]">{field.label}</label>
-        <textarea value={value || ""} disabled={fieldDisabled} onChange={(event) => onChange(event.target.value)} rows={3} className={baseInput} />
+        <textarea
+          value={value || ""}
+          disabled={fieldDisabled}
+          onChange={(event) => onChange(event.target.value)}
+          rows={field.rows || 3}
+          className={`${baseInput} ${field.fillHeight ? "min-h-[124px] flex-1" : ""}`}
+        />
       </div>
     );
   }
@@ -618,6 +741,28 @@ function Field({ field, value, error, disabled, onChange, materialRows }) {
   );
 }
 
+function warehouseAddress(warehouse) {
+  if (!warehouse) return "";
+  const address = warehouse.addressLine || warehouse.address;
+  return [address, warehouse.city, warehouse.district, warehouse.state, warehouse.pincode].filter(Boolean).join(", ");
+}
+
+function WarehouseAddressSummary({ warehouse }) {
+  if (!warehouse) return null;
+  const address = warehouseAddress(warehouse);
+
+  return (
+    <div className="mt-3 rounded-md border border-[var(--line)] bg-slate-50 p-3">
+      <p className="text-xs font-semibold uppercase text-[var(--muted)]">Location Address</p>
+      <p className="mt-1 text-sm font-medium text-[var(--ink)]">{address || "-"}</p>
+      <div className="mt-2 flex flex-wrap gap-3 text-xs text-[var(--muted)]">
+        <span>{warehouse.name}</span>
+        <span>Capacity: {warehouse.utilization !== undefined ? `${warehouse.utilization}%` : "-"}</span>
+      </div>
+    </div>
+  );
+}
+
 function fieldSpanClass(field) {
   if (field.span === "full") return "sm:col-span-12";
   if (field.span === "half") return "sm:col-span-6";
@@ -641,6 +786,9 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
   const location = useLocation();
   const isView = mode === "view";
   const authUserName = session?.user?.name || "You";
+  const company = session?.user?.company || {};
+  const companyName = company.businessName || "IMS Control Center";
+  const companyContact = [company.email, company.phone].filter(Boolean).join(" | ");
 
   const existingRecord = recordId ? purchaseData.getRecord(entityKey, recordId) : null;
   const convertFrom = !recordId ? location.state?.convertFrom : null;
@@ -659,13 +807,23 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
       status: "Draft",
       items: [],
       ...(entityKey === "purchase-request" ? { requestedBy: authUserName } : {}),
+      ...(entityKey === "purchase-order"
+        ? {
+            warehouse: "",
+            warehouseCode: "",
+            warehouseType: "",
+            warehouseManager: "",
+            warehouseUtilization: "",
+            warehouseStatus: "",
+          }
+        : {}),
     };
 
     if (convertFrom?.entityKey === "purchase-request" && entityKey === "purchase-order") {
       const source = convertFrom.record;
       return {
         ...base,
-        refPR: source.id,
+        refPR: [source.id],
         supplier: "",
         items: source.items.map((item) => ({ code: item.code, name: item.name, qty: item.qty, unit: item.unit, price: item.price ?? (materialUnitPrice(getAnyItem(item.code)) || 0), discount: 0, tax: 12 })),
       };
@@ -690,8 +848,9 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
   const [rejectionReason, setRejectionReason] = useState("");
   const [rejectionReasonError, setRejectionReasonError] = useState("");
   const itemRows = filterItemRows(masterData.getRows("product-item"));
+  const selectedWarehouse = masterData.getRows("warehouse").find((warehouse) => warehouse.name === values.warehouse);
   const visibleTabs = entity.form.tabs
-    .filter((tab) => !(entityKey === "purchase-request" && mode === "create" && tab.key === "approval"))
+    .filter((tab) => tab.key !== "approval")
     .map((tab) => ({ ...tab, fields: tab.fields.filter((field) => isFieldVisible(field, values)) }))
     .filter((tab) => tab.fields.length > 0);
   const visibleFormActions = entity.formActions.filter((action) => {
@@ -702,11 +861,174 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
   const canEditRecord = !editLockedStatuses.includes(values.status);
   const actionBarActions =
     mode === "edit"
-      ? [{ key: "update", label: "Update", kind: "primary", validate: true }]
-      : visibleFormActions;
+      ? [{ key: "update", label: "Update", kind: "primary", validate: true }, ...visibleFormActions.filter((action) => !["cancel", "saveDraft"].includes(action.key))]
+      : visibleFormActions.filter((action) => !(mode === "create" && action.print));
 
   function getItem(code) {
     return itemRows.find((m) => m.code === code) || getAnyItem(code);
+  }
+
+  function purchaseOrderCoverageRows({ includeRecord = null, excludeId = "" } = {}) {
+    const rows = purchaseData
+      .getRows("purchase-order")
+      .filter((row) => row.id !== excludeId && row.id !== includeRecord?.id);
+    const mergedRows = includeRecord ? [includeRecord, ...rows] : rows;
+    return mergedRows.filter((row) => poCoverageStatuses.has(row.status));
+  }
+
+  function requestQtyForCode(requestId, code) {
+    const request = purchaseData.getRecord("purchase-request", requestId);
+    return (request?.items || []).filter((item) => item.code === code).reduce((sum, item) => sum + (Number(item.qty) || 0), 0);
+  }
+
+  function itemAllocationsForPurchaseOrder(po, item) {
+    const explicitAllocations = Array.isArray(item.sourcePRAllocations)
+      ? item.sourcePRAllocations
+          .map((allocation) => ({ requestId: allocation.requestId || allocation.refPR || allocation.id, qty: Number(allocation.qty) || 0 }))
+          .filter((allocation) => allocation.requestId && allocation.qty > 0)
+      : [];
+
+    if (explicitAllocations.length > 0) return explicitAllocations;
+
+    const refIds = optionValues(po.refPR);
+    const qty = Number(item.qty) || 0;
+    if (!item.code || qty <= 0 || refIds.length === 0) return [];
+    if (refIds.length === 1) return [{ requestId: refIds[0], qty }];
+
+    let remainingQty = qty;
+    const inferredAllocations = [];
+    refIds.forEach((requestId) => {
+      if (remainingQty <= 0) return;
+      const availableForRequest = requestQtyForCode(requestId, item.code);
+      if (availableForRequest <= 0) return;
+      const allocatedQty = Math.min(remainingQty, availableForRequest);
+      inferredAllocations.push({ requestId, qty: allocatedQty });
+      remainingQty -= allocatedQty;
+    });
+    return inferredAllocations;
+  }
+
+  function orderedQtyForRequestItem(requestId, code, coverageRows) {
+    return coverageRows.reduce((sum, po) => {
+      return (
+        sum +
+        (po.items || []).reduce((itemSum, item) => {
+          if (item.code !== code) return itemSum;
+          return (
+            itemSum +
+            itemAllocationsForPurchaseOrder(po, item)
+              .filter((allocation) => allocation.requestId === requestId)
+              .reduce((allocationSum, allocation) => allocationSum + (Number(allocation.qty) || 0), 0)
+          );
+        }, 0)
+      );
+    }, 0);
+  }
+
+  function remainingPurchaseRequestItems(requestId, coverageRows = purchaseOrderCoverageRows({ excludeId: values.id })) {
+    const request = purchaseData.getRecord("purchase-request", requestId);
+    if (!request) return [];
+
+    return (request.items || [])
+      .map((item) => {
+        const requestedQty = Number(item.qty) || 0;
+        const orderedQty = orderedQtyForRequestItem(requestId, item.code, coverageRows);
+        const remainingQty = Math.max(0, requestedQty - orderedQty);
+        return remainingQty > 0 ? { ...item, requestedQty, orderedQty, qty: remainingQty } : null;
+      })
+      .filter(Boolean);
+  }
+
+  function hasPurchaseRequestRemaining(requestId) {
+    return remainingPurchaseRequestItems(requestId).length > 0;
+  }
+
+  function purchaseOrderItemsFromRequests(requestIds) {
+    const itemsByCode = new Map();
+
+    optionValues(requestIds).forEach((requestId) => {
+      const request = purchaseData.getRecord("purchase-request", requestId);
+      if (!request || request.status !== "Approved") return;
+
+      remainingPurchaseRequestItems(requestId).forEach((item) => {
+        if (!item.code) return;
+        const material = getItem(item.code);
+        const current = itemsByCode.get(item.code);
+        const qty = Number(item.qty) || 0;
+
+        if (current) {
+          itemsByCode.set(item.code, {
+            ...current,
+            qty: (Number(current.qty) || 0) + qty,
+            sourcePRAllocations: [...(current.sourcePRAllocations || []), { requestId, qty }],
+          });
+          return;
+        }
+
+        itemsByCode.set(item.code, {
+          code: item.code,
+          name: item.name || material?.name || "",
+          qty,
+          unit: item.unit || material?.unit || material?.baseUnit || "",
+          price: item.price ?? materialUnitPrice(material) ?? 0,
+          discount: 0,
+          tax: 12,
+          sourcePRAllocations: [{ requestId, qty }],
+        });
+      });
+    });
+
+    return [...itemsByCode.values()];
+  }
+
+  function purchaseOrderWithSourceAllocations(recordValues) {
+    if (entityKey !== "purchase-order") return recordValues;
+
+    const requestIds = optionValues(recordValues.refPR);
+    if (requestIds.length === 0) {
+      return {
+        ...recordValues,
+        items: (recordValues.items || []).map(({ sourcePRAllocations, ...item }) => item),
+      };
+    }
+
+    const coverageRows = purchaseOrderCoverageRows({ excludeId: recordValues.id });
+    const remainingByRequestItem = new Map();
+    requestIds.forEach((requestId) => {
+      remainingPurchaseRequestItems(requestId, coverageRows).forEach((item) => {
+        remainingByRequestItem.set(`${requestId}::${item.code}`, Number(item.qty) || 0);
+      });
+    });
+
+    return {
+      ...recordValues,
+      items: (recordValues.items || []).map((item) => {
+        let qtyToAllocate = Number(item.qty) || 0;
+        const sourcePRAllocations = [];
+
+        requestIds.forEach((requestId) => {
+          if (!item.code || qtyToAllocate <= 0) return;
+          const key = `${requestId}::${item.code}`;
+          const availableQty = remainingByRequestItem.get(key) || 0;
+          const allocatedQty = Math.min(qtyToAllocate, availableQty);
+          if (allocatedQty <= 0) return;
+
+          sourcePRAllocations.push({ requestId, qty: allocatedQty });
+          remainingByRequestItem.set(key, availableQty - allocatedQty);
+          qtyToAllocate -= allocatedQty;
+        });
+
+        return { ...item, sourcePRAllocations };
+      }),
+    };
+  }
+
+  function resolvedFieldOptions(field) {
+    const options = resolveFieldOptions(field, masterData.getRows, purchaseData.getRows, values[field.key]);
+    if (entityKey !== "purchase-order" || field.key !== "refPR") return options;
+
+    const selectedRequestIds = new Set(optionValues(values.refPR));
+    return options.filter((requestId) => selectedRequestIds.has(requestId) || hasPurchaseRequestRemaining(requestId));
   }
 
   useEffect(() => {
@@ -724,11 +1046,29 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
       return;
     }
 
+    if (entityKey === "purchase-order" && field.key === "refPR") {
+      setValues((prev) => ({ ...prev, refPR: next, items: purchaseOrderItemsFromRequests(next) }));
+      return;
+    }
+
     setField(field.key, next);
 
     if (entityKey === "purchase-order" && field.key === "supplier") {
       const match = masterEntities.supplier.list.rows.find((s) => s.name === next);
       setValues((prev) => ({ ...prev, supplier: next, contact: match?.contact || "", phone: match?.phone || "" }));
+    }
+
+    if (entityKey === "purchase-order" && field.key === "warehouse") {
+      const match = masterData.getRows("warehouse").find((warehouse) => warehouse.name === next);
+      setValues((prev) => ({
+        ...prev,
+        warehouse: next || "",
+        warehouseCode: match?.code || "",
+        warehouseType: match?.type || "",
+        warehouseManager: match?.manager || "",
+        warehouseUtilization: match?.utilization !== undefined ? `${match.utilization}%` : "",
+        warehouseStatus: match?.status || "",
+      }));
     }
 
     if (entityKey === "goods-receipt" && field.key === "refPO") {
@@ -846,15 +1186,63 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
     return {};
   }
 
+  async function updateLinkedPurchaseRequestCoverage(record) {
+    if (entityKey !== "purchase-order" || record.status === "Draft") return;
+
+    const affectedRequestIds = uniqueOptions([...optionValues(existingRecord?.refPR), ...optionValues(record.refPR)]);
+    if (affectedRequestIds.length === 0) return;
+
+    const coverageRows = purchaseOrderCoverageRows({ includeRecord: record });
+    await Promise.all(
+      affectedRequestIds.map((requestId) => {
+        const request = purchaseData.getRecord("purchase-request", requestId);
+        if (!request || !["Approved", "Received"].includes(request.status)) return Promise.resolve();
+
+        const hasRemaining = remainingPurchaseRequestItems(requestId, coverageRows).length > 0;
+        if (!hasRemaining && request.status !== "Received") {
+          return purchaseData.updateRow("purchase-request", request.id, {
+            status: "Received",
+            receivedBy: authUserName,
+            receivedDate: today(),
+            activity: [...(request.activity || []), { event: "Received", date: today(), time: currentTime(), by: authUserName }],
+          });
+        }
+
+        if (hasRemaining && request.status === "Received") {
+          return purchaseData.updateRow("purchase-request", request.id, {
+            status: "Approved",
+            receivedBy: "",
+            receivedDate: "",
+            activity: (request.activity || []).filter((entry) => entry.event !== "Received"),
+          });
+        }
+
+        return Promise.resolve();
+      })
+    );
+  }
+
   async function executeAction(action, options = {}) {
     const status = action.status || values.status;
+    const recordValues = purchaseOrderWithSourceAllocations(values);
+    const activity = [...(recordValues.activity || [])];
+    const hasCreatedActivity = activity.some((entry) => ["Created", "Draft"].includes(entry.event));
+    const actionEvent = action.status === "Draft" ? "Created" : action.status || "Updated";
+    if (mode === "create" && !hasCreatedActivity) {
+      activity.push({ event: "Created", date: today(), time: currentTime(), by: authUserName });
+    }
+    if (!(mode === "create" && actionEvent === "Created" && !hasCreatedActivity)) {
+      activity.push({ event: actionEvent, date: today(), time: currentTime(), by: authUserName, ...(options.reason ? { reason: options.reason } : {}) });
+    }
+
     const record = {
-      ...values,
+      ...recordValues,
       ...(entityKey === "purchase-request" && mode === "create" ? { requestedBy: authUserName } : {}),
+      ...(entityKey === "purchase-order" && mode === "create" ? { preparedBy: recordValues.preparedBy || authUserName } : {}),
       status,
       ...approvalPatch(action, options.reason),
       ...statusPatch(status),
-      activity: [...(values.activity || []), { event: action.status || "Updated", date: today(), by: authUserName }],
+      activity,
     };
 
     try {
@@ -863,15 +1251,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
       if (mode === "edit") await purchaseData.updateRow(entityKey, recordId, record);
       else await purchaseData.addRow(entityKey, record);
 
-      if (entityKey === "purchase-order" && mode !== "edit" && convertFrom?.entityKey === "purchase-request" && action.status !== "Draft") {
-        const source = convertFrom.record;
-        await purchaseData.updateRow("purchase-request", source.id, {
-          status: "Received",
-          receivedBy: authUserName,
-          receivedDate: today(),
-          activity: [...(source.activity || []), { event: "Received", date: today(), by: authUserName }],
-        });
-      }
+      await updateLinkedPurchaseRequestCoverage(record);
 
       showToast(action.status ? `${values.id} updated to "${action.status}".` : mode === "edit" ? `${values.id} updated.` : `${entity.singular} saved.`);
       setPendingAction(null);
@@ -917,6 +1297,18 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
     navigate(`/purchase-management/${entityKey}`);
   }
 
+  function printWorkflowSection() {
+    document.body.classList.add("purchase-workflow-only-print");
+    window.addEventListener(
+      "afterprint",
+      () => {
+        document.body.classList.remove("purchase-workflow-only-print");
+      },
+      { once: true }
+    );
+    window.print();
+  }
+
   function addLineItem(field) {
     const items = Array.isArray(values[field.key]) ? values[field.key] : [];
     setField(field.key, [...items, {}]);
@@ -929,7 +1321,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
   };
 
   return (
-    <div>
+    <div className={isView ? "purchase-detail-print-area" : ""}>
       <p className="mb-2 flex items-center gap-1 text-xs text-[var(--muted)] print:hidden">
         <Link to="/purchase-management" className="hover:text-[var(--primary)]">
           Purchase Management
@@ -944,16 +1336,33 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
         </span>
       </p>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
         <h2 className="text-xl font-semibold text-[var(--ink)]">
           {isView ? values.id : mode === "edit" ? `Edit ${entity.label}` : `New ${entity.label}`}
         </h2>
       </div>
 
       {isView && (
-        <div className="mt-3 space-y-3 rounded-md border border-[var(--line)] bg-white p-4">
+        <div className="hidden border-b border-[var(--line)] pb-4 print:block">
+          <div className="workflow-print-banner rounded-md border border-[var(--line)] bg-slate-50 px-5 py-4 text-center">
+            <h1 className="text-xl font-bold text-[var(--ink)]">{companyName}</h1>
+            {company.address && <p className="mt-1 text-sm text-[var(--muted)]">{company.address}</p>}
+            {companyContact && <p className="mt-1 text-sm text-[var(--muted)]">{companyContact}</p>}
+            {company.gstNumber && <p className="mt-1 text-xs font-medium text-[var(--muted)]">GST: {company.gstNumber}</p>}
+          </div>
+          <div className="workflow-print-title mt-4 flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-[var(--ink)]">{entity.label} Details</h2>
+            <p className="text-sm font-medium text-[var(--muted)]">
+              {values.id} - Status: {values.status}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {isView && (
+        <div className="purchase-workflow-print-area mt-3 space-y-3 rounded-md border border-[var(--line)] bg-white p-4">
           <DocumentChain links={documentLinks(entityKey, values)} />
-          <WorkflowTimeline steps={workflowSteps[entityKey]} activity={values.activity} />
+          <WorkflowTimeline steps={getWorkflowSteps(entityKey, values.status)} activity={values.activity} record={values} />
         </div>
       )}
 
@@ -986,11 +1395,11 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-12">
                 {tab.fields.map((field) => (
-                  <div key={field.key} className={fieldSpanClass(field)}>
+                  <div key={field.key} className={`${fieldSpanClass(field)} purchase-field purchase-field-${field.type}`}>
                     <Field
                       field={{
                         ...(field.type === "lineItems" && field.allowAddRemove ? { ...field, hideAddButton: true } : field),
-                        options: resolveFieldOptions(field, masterData.getRows, purchaseData.getRows, values[field.key]),
+                        options: resolvedFieldOptions(field),
                       }}
                       value={values[field.key]}
                       error={errors[field.key]}
@@ -998,6 +1407,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
                       materialRows={itemRows}
                       onChange={(next) => handleFieldChange(field, next)}
                     />
+                    {entityKey === "purchase-order" && tab.key === "delivery" && field.key === "warehouse" && selectedWarehouse && <WarehouseAddressSummary warehouse={selectedWarehouse} />}
                   </div>
                 ))}
               </div>
@@ -1012,7 +1422,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
             <button type="button" onClick={handleCancel} className="rounded-md border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-slate-50">
               Close
             </button>
-            <button type="button" onClick={() => window.print()} className="rounded-md border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-slate-50">
+            <button type="button" onClick={printWorkflowSection} className="rounded-md border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-slate-50">
               Print
             </button>
             {canEditRecord && (
@@ -1052,6 +1462,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
         title={pendingAction?.confirm || "Are you sure?"}
         message={`This will update ${values.id} to "${pendingAction?.status}".`}
         confirmLabel={pendingAction?.label}
+        tone={pendingAction?.tone}
         onConfirm={() => executeAction(pendingAction)}
         onCancel={() => setPendingAction(null)}
       />
