@@ -5,7 +5,6 @@ import {
   purchaseEntities,
   poTotals,
 } from "../data/purchaseManagement.js";
-import { PurchaseSidebar } from "../components/purchase/PurchaseSidebar.jsx";
 import { PurchaseList } from "../components/purchase/PurchaseList.jsx";
 import { PurchaseForm } from "../components/purchase/PurchaseForm.jsx";
 import { WorkflowTimeline } from "../components/purchase/WorkflowTimeline.jsx";
@@ -17,12 +16,7 @@ const money = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR
 const editLockedStatuses = ["Approved", "Rejected", "Ordered", "Partially Received", "Received", "Returned", "Cancelled", "Completed"];
 
 function PurchaseLayout({ children }) {
-  return (
-    <div className="flex flex-col gap-5 lg:flex-row">
-      <PurchaseSidebar />
-      <div className="min-w-0 flex-1">{children}</div>
-    </div>
-  );
+  return <div className="min-w-0 w-full">{children}</div>;
 }
 
 export function PurchaseManagementDashboard() {
@@ -206,7 +200,7 @@ function PurchaseOrderDetails({ id }) {
                   ...(relatedReceipts[0] ? [{ label: "Goods Receipt", id: relatedReceipts[0].id, to: `/purchase-management/goods-receipt/${relatedReceipts[0].id}/view` }] : []),
                 ]}
               />
-              <WorkflowTimeline steps={["Created", "Approved", "Sent to Supplier", "Received"]} activity={po.activity} />
+              <WorkflowTimeline steps={["Created", "Approved", "Sent to Supplier", "Complete GRN"]} activity={po.activity} record={po} />
 
               <div className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
                 <InfoRow label="Supplier" value={po.supplier} />

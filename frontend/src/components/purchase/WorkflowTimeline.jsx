@@ -6,6 +6,7 @@ const stepEventAliases = {
   "Submitted for Approval": ["Pending Approval"],
   "Submitted for Inspection": ["Pending Inspection"],
   "Sent to Supplier": ["Ordered"],
+  "Complete GRN": ["Received", "Completed", "Stock Updated"],
   "Stock Updated": ["Completed"],
   "Stock Deducted": ["Returned"],
 };
@@ -32,6 +33,9 @@ function fallbackRecordActivity(step, record) {
   }
   if (step === "Received" && (record.receivedBy || record.receivedDate)) {
     return { event: "Received", by: record.receivedBy, date: record.receivedDate };
+  }
+  if (step === "Complete GRN" && record.status === "Received" && !record.refPO && (record.receivedBy || record.receivedDate)) {
+    return { event: "Complete GRN", by: record.receivedBy, date: record.receivedDate };
   }
   return null;
 }

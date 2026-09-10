@@ -29,8 +29,8 @@ function nextId(entityKey, rows) {
 
 const workflowSteps = {
   "purchase-request": ["Created", "Submitted for Approval", "Approved", "Received"],
-  "purchase-order": ["Created", "Approved", "Sent to Supplier", "Received"],
-  "goods-receipt": ["Created", "Submitted for Inspection", "Inspection Completed", "Stock Updated"],
+  "purchase-order": ["Created", "Approved", "Sent to Supplier", "Complete GRN"],
+  "goods-receipt": ["Created", "Submitted for Inspection", "Inspection Completed", "Complete GRN"],
   "purchase-return": ["Created", "Submitted for Approval", "Approved", "Stock Deducted"],
 };
 
@@ -80,7 +80,7 @@ function resolveFieldOptions(field, getMasterRows, getPurchaseRows, currentValue
     return uniqueOptions([...entityOptions, ...currentValues]);
   }
 
-  return field.options || [];
+  return uniqueOptions([...(field.options || []), ...optionValues(currentValue)]);
 }
 
 function documentLinks(entityKey, values) {
@@ -126,7 +126,22 @@ function materialOptionLabel(material) {
   return [material.name, material.code].filter(Boolean).join(" - ");
 }
 
-function MaterialLineItemSelect({ row, disabled, onChange, materialRows = [], selectedCodes = new Set() }) {
+function grnNetAmount(row) {
+  const qty = Number(row.unitQty ?? row.acceptedQty ?? row.receivedQty) || 0;
+  const rate = Number(row.rate ?? row.price) || 0;
+  return qty * rate;
+}
+
+function grnLineAmount(row) {
+  const netAmount = grnNetAmount(row);
+  const percentDiscount = netAmount * ((Number(row.discountPct) || 0) / 100);
+  const discountAmount = Number(row.discountAmount) || 0;
+  const taxableAmount = Math.max(0, netAmount - percentDiscount - discountAmount);
+  const taxPercent = (Number(row.cgst) || 0) + (Number(row.sgst) || 0) + (Number(row.igst) || 0);
+  return taxableAmount * (1 + taxPercent / 100);
+}
+
+function MaterialLineItemSelect({ row, disabled, onChange, materialRows = [], selectedCodes = new Set(), compact = false }) {
   const selectedMaterial = materialRows.find((m) => m.code === row.code);
   const selectedLabel = row.code ? materialOptionLabel(selectedMaterial || row) : "";
   const [open, setOpen] = useState(false);
@@ -213,7 +228,7 @@ function MaterialLineItemSelect({ row, disabled, onChange, materialRows = [], se
           openDropdown();
           handleChange(event.target.value);
         }}
-        className="w-full min-w-[210px] rounded border border-[var(--line)] px-2 py-1.5 pr-8 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-[var(--muted)]"
+        className={`w-full ${compact ? "min-w-[155px] px-1.5 py-1 text-xs" : "min-w-[210px] px-2 py-1.5 text-sm"} rounded border border-[var(--line)] pr-8 outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-[var(--muted)]`}
       />
       <button
         type="button"
@@ -254,11 +269,13 @@ function MaterialLineItemSelect({ row, disabled, onChange, materialRows = [], se
   );
 }
 
-function LineItemCell({ column, row, disabled, onChange, materialRows = [], selectedCodes = new Set() }) {
+function LineItemCell({ column, row, disabled, onChange, materialRows = [], selectedCodes = new Set(), compact = false }) {
   const readOnly = disabled || column.readOnly;
+  const isCompact = compact || column.compact;
+  const displayClass = `block whitespace-nowrap rounded border border-[var(--line)] bg-slate-100 text-right text-[var(--muted)] ${isCompact ? "px-1 py-1 text-xs" : "px-2 py-1.5 text-sm"}`;
 
   if (column.type === "material-select") {
-    return <MaterialLineItemSelect row={row} disabled={readOnly} onChange={onChange} materialRows={materialRows} selectedCodes={selectedCodes} />;
+    return <MaterialLineItemSelect row={row} disabled={readOnly} onChange={onChange} materialRows={materialRows} selectedCodes={selectedCodes} compact={isCompact} />;
   }
 
   if (column.type === "material-select") {
@@ -289,8 +306,16 @@ function LineItemCell({ column, row, disabled, onChange, materialRows = [], sele
     return <span className="block px-2 py-1.5 text-sm font-medium text-[var(--ink)]">{money.format(lineTotal(row))}</span>;
   }
 
+  if (column.type === "computed-grn-net") {
+    return <span className={displayClass}>{money.format(grnNetAmount(row))}</span>;
+  }
+
+  if (column.type === "computed-grn-amount") {
+    return <span className={displayClass}>{money.format(grnLineAmount(row))}</span>;
+  }
+
   if (readOnly) {
-    return <span className="block whitespace-nowrap px-2 py-1.5 text-sm text-[var(--muted)]">{row[column.key] ?? ""}</span>;
+    return <span className={`block whitespace-nowrap text-[var(--muted)] ${isCompact ? "px-1 py-1 text-xs" : "px-2 py-1.5 text-sm"}`}>{row[column.key] ?? ""}</span>;
   }
 
   return (
@@ -302,14 +327,44 @@ function LineItemCell({ column, row, disabled, onChange, materialRows = [], sele
         if (column.maxKey && value !== "" && Number(value) > Number(row[column.maxKey])) {
           value = row[column.maxKey];
         }
-        onChange({ ...row, [column.key]: value });
+        const patch = { ...row, [column.key]: value };
+        if (column.syncQuantity) {
+          patch.unitQty = value;
+          patch.receivedQty = value;
+          patch.acceptedQty = value;
+        }
+        onChange(patch);
       }}
-      className={`w-full min-w-[90px] rounded border border-[var(--line)] px-2 py-1.5 text-sm ${column.type === "number" ? "text-right" : ""}`}
+      className={`w-full ${isCompact ? "min-w-[44px] px-1 py-1 text-xs" : "min-w-[90px] px-2 py-1.5 text-sm"} rounded border border-[var(--line)] ${column.type === "number" ? "text-right" : ""}`}
     />
   );
 }
 
-const lineItemNumericColumnKeys = new Set(["qty", "orderedQty", "receivedQty", "acceptedQty", "rejectedQty", "availableQty", "returnQty", "price", "discount", "tax", "total"]);
+const lineItemNumericColumnKeys = new Set([
+  "qty",
+  "orderedQty",
+  "receivedQty",
+  "acceptedQty",
+  "rejectedQty",
+  "availableQty",
+  "returnQty",
+  "price",
+  "discount",
+  "tax",
+  "total",
+  "unitQty",
+  "subUnitQty",
+  "testQty",
+  "mrp",
+  "rate",
+  "netAmount",
+  "discountPct",
+  "discountAmount",
+  "cgst",
+  "sgst",
+  "igst",
+  "amount",
+]);
 
 function lineItemColumnClass(column) {
   const numeric = lineItemNumericColumnKeys.has(column.key) || column.type === "computed-line-total";
@@ -318,6 +373,11 @@ function lineItemColumnClass(column) {
 
 function LineItemsField({ field, rows, disabled, onChange, materialRows, hideAddButton = false }) {
   const items = Array.isArray(rows) ? rows : [];
+  const hasColumnGroups = Array.isArray(field.columnGroups) && field.columnGroups.length > 0;
+  const compactRows = Boolean(field.compactRows);
+  const canRemoveRows = field.allowAddRemove || field.allowRemoveRows;
+  const groupedColumnKeys = new Set((field.columnGroups || []).flatMap((group) => group.keys || []));
+  const columnGroupByStartKey = new Map((field.columnGroups || []).map((group) => [group.keys?.[0], group]));
   const totals =
     field.totals === true
       ? poTotals(items)
@@ -330,21 +390,57 @@ function LineItemsField({ field, rows, disabled, onChange, materialRows, hideAdd
   return (
     <div>
       <div className="purchase-lineitems-wrapper overflow-x-auto rounded-md border border-[var(--line)]">
-        <table className="purchase-lineitems-table w-full min-w-[700px] text-left text-sm">
-          <thead className="bg-slate-50 text-xs uppercase text-[var(--muted)]">
-            <tr>
-              {field.columns.map((col) => (
-                <th key={col.key} className={`px-2 py-2 first:pl-3 ${lineItemColumnClass(col)}`}>
-                  {col.label}
-                </th>
-              ))}
-              {!disabled && field.allowAddRemove && <th className="px-2 py-2" />}
-            </tr>
+        <table className="purchase-lineitems-table w-full min-w-[700px] text-left text-sm" style={field.minWidth ? { minWidth: field.minWidth } : undefined}>
+          <thead className={`${field.headerTone === "teal" ? "bg-teal-900 text-white" : "bg-slate-50 text-[var(--muted)]"} text-xs uppercase`}>
+            {hasColumnGroups ? (
+              <>
+                <tr>
+                  {field.columns.map((col) => {
+                    const group = columnGroupByStartKey.get(col.key);
+                    if (group) {
+                      return (
+                        <th key={group.label} colSpan={group.keys.length} className="border-b border-white/20 px-2 py-1.5 text-center">
+                          {group.label}
+                        </th>
+                      );
+                    }
+                    if (groupedColumnKeys.has(col.key)) return null;
+                    return (
+                      <th key={col.key} rowSpan={2} className={`${compactRows ? "px-1.5 py-1.5" : "px-2 py-2"} first:pl-3 ${lineItemColumnClass(col)}`} style={col.width ? { minWidth: col.width } : undefined}>
+                        {col.label}
+                        {col.required && <span className="ml-0.5 text-red-300">*</span>}
+                      </th>
+                    );
+                  })}
+                  {!disabled && canRemoveRows && <th rowSpan={2} className="px-2 py-2" />}
+                </tr>
+                <tr>
+                  {field.columns
+                    .filter((col) => groupedColumnKeys.has(col.key))
+                    .map((col) => (
+                      <th key={col.key} className={`${compactRows ? "px-1.5 py-1.5" : "px-2 py-2"} ${lineItemColumnClass(col)}`} style={col.width ? { minWidth: col.width } : undefined}>
+                        {col.label}
+                        {col.required && <span className="ml-0.5 text-red-300">*</span>}
+                      </th>
+                    ))}
+                </tr>
+              </>
+            ) : (
+              <tr>
+                {field.columns.map((col) => (
+                  <th key={col.key} className={`${compactRows ? "px-1.5 py-1.5" : "px-2 py-2"} first:pl-3 ${lineItemColumnClass(col)}`} style={col.width ? { minWidth: col.width } : undefined}>
+                    {col.label}
+                    {col.required && <span className="ml-0.5 text-red-300">*</span>}
+                  </th>
+                ))}
+                {!disabled && canRemoveRows && <th className="px-2 py-2" />}
+              </tr>
+            )}
           </thead>
           <tbody>
             {items.length === 0 && (
               <tr>
-                <td colSpan={field.columns.length + 1} className="px-3 py-4 text-center text-sm text-[var(--muted)]">
+                <td colSpan={field.columns.length + (canRemoveRows && !disabled ? 1 : 0)} className="px-3 py-4 text-center text-sm text-[var(--muted)]">
                   No items yet.
                 </td>
               </tr>
@@ -352,12 +448,13 @@ function LineItemsField({ field, rows, disabled, onChange, materialRows, hideAdd
             {items.map((row, index) => (
               <tr key={index} className="border-t border-slate-100">
                 {field.columns.map((col) => (
-                  <td key={col.key} className={`px-2 py-1.5 first:pl-3 ${lineItemColumnClass(col)}`}>
+                  <td key={col.key} className={`${compactRows ? "px-1 py-1" : "px-2 py-1.5"} first:pl-3 ${lineItemColumnClass(col)}`} style={col.width ? { minWidth: col.width } : undefined}>
                     <LineItemCell
                       column={col}
                       row={row}
                       disabled={disabled}
                       materialRows={materialRows}
+                      compact={compactRows}
                       selectedCodes={new Set(items.filter((_, itemIndex) => itemIndex !== index).map((item) => item.code).filter(Boolean))}
                       onChange={(next) => {
                         const updated = [...items];
@@ -367,7 +464,7 @@ function LineItemsField({ field, rows, disabled, onChange, materialRows, hideAdd
                     />
                   </td>
                 ))}
-                {!disabled && field.allowAddRemove && (
+                {!disabled && canRemoveRows && (
                   <td className="px-2 py-1.5">
                     <button
                       type="button"
@@ -647,6 +744,26 @@ function Field({ field, value, error, disabled, onChange, materialRows }) {
   }
 
   if (field.type === "toggle") {
+    if (field.labelOutside) {
+      return (
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-[var(--ink)]">{field.label}</label>
+          <div className={`${baseInput} flex min-h-[46px] items-center justify-end`}>
+            <button
+              type="button"
+              disabled={fieldDisabled}
+              onClick={() => onChange(!value)}
+              aria-label={field.label}
+              aria-pressed={Boolean(value)}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${value ? "bg-[var(--primary)]" : "bg-slate-200"}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${value ? "translate-x-5" : "translate-x-0"}`} />
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <label className="flex items-center justify-between gap-3 rounded-md border border-[var(--line)] px-3 py-2.5">
         <span className="text-sm font-medium text-[var(--ink)]">{field.label}</span>
@@ -835,7 +952,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
         refPO: source.id,
         supplier: source.supplier,
         warehouse: source.warehouse,
-        items: source.items.map((item) => ({ code: item.code, name: item.name, orderedQty: item.qty, receivedQty: item.qty, acceptedQty: item.qty, rejectedQty: 0, unit: item.unit, batch: "", expiry: "" })),
+        items: remainingGoodsReceiptItemsForPurchaseOrder(source),
       };
     }
     return base;
@@ -1023,6 +1140,42 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
     };
   }
 
+  function goodsReceiptItemFromPurchaseOrderItem(item, qty) {
+    const receiptQty = Number(qty) || 0;
+    return {
+      code: item.code,
+      name: item.name,
+      orderedQty: receiptQty,
+      receivedQty: receiptQty,
+      acceptedQty: receiptQty,
+      rejectedQty: 0,
+      unitQty: receiptQty,
+      unit: item.unit,
+      testQty: "",
+      mrp: item.price || 0,
+      rate: item.price || 0,
+      discountPct: item.discount || 0,
+      discountAmount: 0,
+      cgst: 0,
+      sgst: 0,
+      igst: item.tax || 0,
+      batch: "",
+      expiry: "",
+    };
+  }
+
+  function remainingGoodsReceiptItemsForPurchaseOrder(po) {
+    const receiptRows = completedGoodsReceiptRows();
+    return (po.items || [])
+      .map((item) => {
+        const orderedQty = Number(item.qty) || 0;
+        const receivedQty = receivedQtyForPurchaseOrderItem(po.id, item.code, receiptRows);
+        const remainingQty = Math.max(0, orderedQty - receivedQty);
+        return remainingQty > 0 ? goodsReceiptItemFromPurchaseOrderItem(item, remainingQty) : null;
+      })
+      .filter(Boolean);
+  }
+
   function resolvedFieldOptions(field) {
     const options = resolveFieldOptions(field, masterData.getRows, purchaseData.getRows, values[field.key]);
     if (entityKey !== "purchase-order" || field.key !== "refPR") return options;
@@ -1079,8 +1232,10 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
           refPO: next,
           supplier: po.supplier,
           warehouse: po.warehouse,
-          items: po.items.map((item) => ({ code: item.code, name: item.name, orderedQty: item.qty, receivedQty: item.qty, acceptedQty: item.qty, rejectedQty: 0, unit: item.unit, batch: "", expiry: "" })),
+          items: remainingGoodsReceiptItemsForPurchaseOrder(po),
         }));
+      } else {
+        setValues((prev) => ({ ...prev, refPO: next, supplier: "", warehouse: "", items: [] }));
       }
     }
 
@@ -1118,7 +1273,14 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
           nextErrors[field.key] = `${field.label} is required.`;
         }
         if (field.type === "lineItems") {
-          const selectedCodes = (Array.isArray(values[field.key]) ? values[field.key] : []).map((item) => item.code).filter(Boolean);
+          const lineItems = Array.isArray(values[field.key]) ? values[field.key] : [];
+          if (field.minRows && lineItems.length < field.minRows) {
+            nextErrors[field.key] = `At least ${field.minRows} item${field.minRows === 1 ? "" : "s"} required.`;
+          }
+          if (field.requirePositiveQuantityKey && !lineItems.some((item) => (Number(item[field.requirePositiveQuantityKey]) || 0) > 0)) {
+            nextErrors[field.key] = "At least one item must have a receive quantity.";
+          }
+          const selectedCodes = lineItems.map((item) => item.code).filter(Boolean);
           const hasDuplicateCode = selectedCodes.some((code, index) => selectedCodes.indexOf(code) !== index);
           if (hasDuplicateCode) nextErrors[field.key] = "Same item cannot be added more than once.";
         }
@@ -1138,7 +1300,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
       const masterItemRows = masterData.getRows("product-item");
       const current = masterItemRows.find((r) => r.code === item.code);
       if (!current) return;
-      const qty = direction === "increase" ? Number(item.acceptedQty) || 0 : Number(item.returnQty) || 0;
+      const qty = direction === "increase" ? Number(item.unitQty ?? item.acceptedQty ?? item.receivedQty) || 0 : Number(item.returnQty) || 0;
       const delta = direction === "increase" ? qty : -qty;
       masterData.updateRow("product-item", item.code, { stock: Math.max(0, (Number(current.stock) || 0) + delta) });
     });
@@ -1222,6 +1384,51 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
     );
   }
 
+  function completedGoodsReceiptRows({ includeRecord = null } = {}) {
+    const rows = purchaseData
+      .getRows("goods-receipt")
+      .filter((row) => row.id !== includeRecord?.id);
+    const mergedRows = includeRecord ? [includeRecord, ...rows] : rows;
+    return mergedRows.filter((row) => row.status === "Completed");
+  }
+
+  function receivedQtyForPurchaseOrderItem(poId, itemCode, receiptRows) {
+    return receiptRows
+      .filter((receipt) => receipt.refPO === poId)
+      .reduce((sum, receipt) => {
+        return (
+          sum +
+          (receipt.items || [])
+            .filter((item) => item.code === itemCode)
+            .reduce((itemSum, item) => itemSum + (Number(item.unitQty ?? item.receivedQty ?? item.acceptedQty) || 0), 0)
+        );
+      }, 0);
+  }
+
+  async function updateLinkedPurchaseOrderReceiptStatus(record) {
+    if (entityKey !== "goods-receipt" || record.status !== "Completed") return;
+
+    const po = purchaseData.getRecord("purchase-order", record.refPO);
+    if (!po || ["Draft", "Pending Approval", "Rejected", "Cancelled", "Returned"].includes(po.status)) return;
+
+    const receiptRows = completedGoodsReceiptRows({ includeRecord: record });
+    const orderedItems = (po.items || []).filter((item) => item.code && (Number(item.qty) || 0) > 0);
+    if (orderedItems.length === 0) return;
+
+    const hasAnyReceived = orderedItems.some((item) => receivedQtyForPurchaseOrderItem(po.id, item.code, receiptRows) > 0);
+    if (!hasAnyReceived) return;
+
+    const isFullyReceived = orderedItems.every((item) => receivedQtyForPurchaseOrderItem(po.id, item.code, receiptRows) >= (Number(item.qty) || 0));
+    const nextStatus = isFullyReceived ? "Received" : "Partially Received";
+    if (po.status === nextStatus) return;
+
+    await purchaseData.updateRow("purchase-order", po.id, {
+      status: nextStatus,
+      ...(nextStatus === "Received" ? { receivedBy: authUserName, receivedDate: today() } : { receivedBy: "", receivedDate: "" }),
+      activity: [...(po.activity || []), { event: nextStatus, date: today(), time: currentTime(), by: authUserName }],
+    });
+  }
+
   async function executeAction(action, options = {}) {
     const status = action.status || values.status;
     const recordValues = purchaseOrderWithSourceAllocations(values);
@@ -1252,6 +1459,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
       else await purchaseData.addRow(entityKey, record);
 
       await updateLinkedPurchaseRequestCoverage(record);
+      await updateLinkedPurchaseOrderReceiptStatus(record);
 
       showToast(action.status ? `${values.id} updated to "${action.status}".` : mode === "edit" ? `${values.id} updated.` : `${entity.singular} saved.`);
       setPendingAction(null);
@@ -1376,8 +1584,8 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
       <div className="mt-4 rounded-md border border-[var(--line)] bg-white">
         <div className="divide-y divide-[var(--line)]">
           {visibleTabs.map((tab) => (
-            <section key={tab.key} className="p-4 sm:p-5">
-              <div className="mb-4 flex flex-wrap items-center gap-3">
+            <section key={tab.key} className={tab.compact ? "p-3 sm:p-4" : "p-4 sm:p-5"}>
+              <div className={`${tab.compact ? "mb-2" : "mb-4"} flex flex-wrap items-center gap-3`}>
                 <h3 className="text-sm font-semibold uppercase text-[var(--muted)]">{tab.label}</h3>
                 {!isView &&
                   tab.fields
@@ -1393,7 +1601,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
                       </button>
                     ))}
               </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-12">
+              <div className={`grid grid-cols-1 ${tab.compact ? "gap-3" : "gap-4"} sm:grid-cols-12`}>
                 {tab.fields.map((field) => (
                   <div key={field.key} className={`${fieldSpanClass(field)} purchase-field purchase-field-${field.type}`}>
                     <Field

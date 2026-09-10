@@ -89,7 +89,9 @@ export function PurchaseDataProvider({ children, storageScope, token }) {
 
   const updateRow = useCallback(async (entityKey, id, patch) => {
     if (token && hasPurchaseApiEntity(entityKey)) {
-      const row = await updatePurchaseRow(entityKey, id, patch, token);
+      const existingRow = (normalizedData[entityKey] || []).find((row) => row.id === id);
+      const mergedPatch = existingRow ? { ...existingRow, ...patch } : patch;
+      const row = await updatePurchaseRow(entityKey, id, mergedPatch, token);
       setData((prev) => ({
         ...prev,
         [entityKey]: (prev[entityKey] || []).map((item) => (item.id === id ? row : item)),
@@ -102,7 +104,7 @@ export function PurchaseDataProvider({ children, storageScope, token }) {
       [entityKey]: prev[entityKey].map((row) => (row.id === id ? { ...row, ...patch } : row)),
     }));
     return patch;
-  }, [setData, token]);
+  }, [normalizedData, setData, token]);
 
   const value = useMemo(() => ({ getRows, getRecord, addRow, updateRow }), [getRows, getRecord, addRow, updateRow]);
 

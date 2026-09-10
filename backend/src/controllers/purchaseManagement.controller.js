@@ -95,11 +95,21 @@ export async function updatePurchaseDocument(req, res, next) {
     }
 
     const currentDocumentId = normalize(req.params.id);
-    const patch = purchaseDocumentPatch(req.body);
-    if (!patch.documentId) {
-      patch.documentId = currentDocumentId;
-      patch.data.id = currentDocumentId;
+    const currentRow = await PurchaseManagementDocument.findOne({
+      tenantId: req.auth.tenantId,
+      entityKey,
+      documentId: currentDocumentId,
+    });
+
+    if (!currentRow) {
+      return res.status(404).json({ message: "Purchase document not found." });
     }
+
+    const patch = purchaseDocumentPatch({
+      ...(currentRow.data || {}),
+      ...(req.body || {}),
+      id: normalize(req.body?.id) || currentDocumentId,
+    });
 
     const row = await PurchaseManagementDocument.findOneAndUpdate(
       {
@@ -115,10 +125,6 @@ export async function updatePurchaseDocument(req, res, next) {
       },
       { new: true, runValidators: true }
     );
-
-    if (!row) {
-      return res.status(404).json({ message: "Purchase document not found." });
-    }
 
     return res.status(200).json({
       row: serializePurchaseDocument(row),
