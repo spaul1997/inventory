@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
-import { FileText, IndianRupee, PackageCheck, Plus, ShoppingCart, Undo2 } from "lucide-react";
+import { FileText, IndianRupee, PackageCheck, Plus, Send, ShoppingCart, Undo2 } from "lucide-react";
 import {
   purchaseEntities,
   poTotals,
@@ -13,7 +13,7 @@ import { Badge, Metric, Panel } from "../components/ui.jsx";
 import { usePurchaseData } from "../components/purchase/PurchaseDataContext.jsx";
 
 const money = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
-const editLockedStatuses = ["Approved", "Rejected", "Ordered", "Partially Received", "Received", "Returned", "Cancelled", "Completed"];
+const editLockedStatuses = ["Approved", "Rejected", "Ordered", "Partially Received", "Completed GRN", "Received", "Returned", "Cancelled", "Completed"];
 
 function PurchaseLayout({ children }) {
   return <div className="min-w-0 w-full">{children}</div>;
@@ -24,11 +24,13 @@ export function PurchaseManagementDashboard() {
   const requests = getRows("purchase-request");
   const orders = getRows("purchase-order");
   const receipts = getRows("goods-receipt");
+  const issues = getRows("purchase-issue");
   const returns = getRows("purchase-return");
 
   const pendingRequests = requests.filter((r) => r.status === "Pending Approval").length;
   const openOrders = orders.filter((r) => ["Approved", "Ordered", "Partially Received"].includes(r.status)).length;
   const awaitingReceipt = receipts.filter((r) => r.status === "Pending Inspection").length;
+  const activeIssues = issues.filter((r) => ["Pending Approval", "Approved"].includes(r.status)).length;
   const activeReturns = returns.filter((r) => ["Pending Approval", "Approved"].includes(r.status)).length;
   const totalValue = orders.reduce((sum, po) => sum + poTotals(po.items).grandTotal, 0);
 
@@ -54,16 +56,20 @@ export function PurchaseManagementDashboard() {
             <Link to="/purchase-management/goods-receipt/new" className="flex items-center gap-1.5 rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-slate-50">
               <Plus size={15} /> Goods Receipt
             </Link>
+            <Link to="/purchase-management/purchase-issue/new" className="flex items-center gap-1.5 rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-slate-50">
+              <Plus size={15} /> Purchase Issue
+            </Link>
             <Link to="/purchase-management/purchase-return/new" className="flex items-center gap-1.5 rounded-md bg-[var(--primary)] px-3 py-2 text-sm font-semibold text-white hover:bg-[var(--primary-deep)]">
               <Plus size={15} /> Purchase Return
             </Link>
           </div>
         </div>
 
-        <section className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <section className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
           <Metric label="Pending Purchase Requests" value={pendingRequests} icon={FileText} tone="warning" />
           <Metric label="Open Purchase Orders" value={openOrders} icon={ShoppingCart} tone="primary" />
           <Metric label="Goods Awaiting Receipt" value={awaitingReceipt} icon={PackageCheck} tone="accent" />
+          <Metric label="Purchase Issues" value={activeIssues} icon={Send} tone="primary" />
           <Metric label="Purchase Returns" value={activeReturns} icon={Undo2} tone="danger" />
           <Metric label="Total Purchase Value" value={money.format(totalValue)} icon={IndianRupee} tone="success" trend={{ direction: "up", value: "5.8%" }} />
         </section>
@@ -132,7 +138,7 @@ export function PurchaseManagementFormPage({ mode }) {
   );
 }
 
-const detailTabs = ["Overview", "Items", "Goods Receipts", "Purchase Returns", "Payments", "Documents", "Activity Log"];
+const detailTabs = ["Overview", "Items", "Goods Receipts", "Purchase Issues", "Purchase Returns", "Payments", "Documents", "Activity Log"];
 
 function PurchaseOrderDetails({ id }) {
   const purchaseData = usePurchaseData();
@@ -143,8 +149,9 @@ function PurchaseOrderDetails({ id }) {
 
   const totals = poTotals(po.items);
   const relatedReceipts = purchaseData.getRows("goods-receipt").filter((g) => g.refPO === po.id);
+  const relatedIssues = purchaseData.getRows("purchase-issue").filter((issue) => issue.refPO === po.id);
   const relatedReturns = purchaseData.getRows("purchase-return").filter((r) => r.refPO === po.id);
-  const paid = po.status === "Received" ? totals.grandTotal : po.status === "Partially Received" ? totals.grandTotal * 0.4 : 0;
+  const paid = ["Completed GRN", "Received"].includes(po.status) ? totals.grandTotal : po.status === "Partially Received" ? totals.grandTotal * 0.4 : 0;
   const canEditRecord = !editLockedStatuses.includes(po.status);
 
   return (
@@ -200,7 +207,7 @@ function PurchaseOrderDetails({ id }) {
                   ...(relatedReceipts[0] ? [{ label: "Goods Receipt", id: relatedReceipts[0].id, to: `/purchase-management/goods-receipt/${relatedReceipts[0].id}/view` }] : []),
                 ]}
               />
-              <WorkflowTimeline steps={["Created", "Approved", "Sent to Supplier", "Complete GRN"]} activity={po.activity} record={po} />
+              <WorkflowTimeline steps={["Created", "Approved", "Sent to Supplier", "Completed GRN"]} activity={po.activity} record={po} />
 
               <div className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
                 <InfoRow label="Supplier" value={po.supplier} />
@@ -277,6 +284,20 @@ function PurchaseOrderDetails({ id }) {
                 { key: "id", label: "Return Number", to: (r) => `/purchase-management/purchase-return/${r.id}/view` },
                 { key: "date", label: "Return Date" },
                 { key: "reason", label: "Reason" },
+                { key: "status", label: "Status", badge: true },
+              ]}
+            />
+          )}
+
+          {tab === "Purchase Issues" && (
+            <RelatedList
+              rows={relatedIssues}
+              empty="No purchase issues raised against this PO."
+              columns={[
+                { key: "id", label: "Issue Number", to: (r) => `/purchase-management/purchase-issue/${r.id}/view` },
+                { key: "refGRN", label: "GRN Number" },
+                { key: "date", label: "Issue Date" },
+                { key: "issuedTo", label: "Issued To" },
                 { key: "status", label: "Status", badge: true },
               ]}
             />

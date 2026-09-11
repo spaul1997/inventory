@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useMemo } from "react";
 import { manufacturingEntities } from "../../data/manufacturing/entities.js";
-import { useScopedState } from "../../lib/scopedStorage.js";
+import { sanitizeEntityCollections, useScopedState } from "../../lib/scopedStorage.js";
 import { useMasterData } from "../master/MasterDataContext.jsx";
 import { useStockData } from "../stock/StockDataContext.jsx";
 
@@ -37,31 +37,31 @@ function initialFgBalances() {
 export function ManufacturingDataProvider({ children, storageScope }) {
   const masterData = useMasterData();
   const stockData = useStockData();
-  const [data, setData] = useScopedState(storageScope, "manufacturing-data", initialEntityState);
+  const [data, setData] = useScopedState(storageScope, "manufacturing-data", initialEntityState, sanitizeEntityCollections);
   const [fgBalances, setFgBalances] = useScopedState(storageScope, "manufacturing-fg-balances", initialFgBalances);
 
-  const getRows = useCallback((entityKey) => data[entityKey] || [], [data]);
-  const getRecord = useCallback((entityKey, id) => (data[entityKey] || []).find((row) => keyOf(row) === id), [data]);
+  const getRows = useCallback((entityKey) => (Array.isArray(data[entityKey]) ? data[entityKey] : []), [data]);
+  const getRecord = useCallback((entityKey, id) => getRows(entityKey).find((row) => keyOf(row) === id), [getRows]);
 
   const addRow = useCallback((entityKey, record) => {
-    setData((prev) => ({ ...prev, [entityKey]: [{ ...record }, ...prev[entityKey]] }));
+    setData((prev) => ({ ...prev, [entityKey]: [{ ...record }, ...(Array.isArray(prev[entityKey]) ? prev[entityKey] : [])] }));
   }, []);
 
   const updateRow = useCallback((entityKey, id, patch) => {
-    setData((prev) => ({ ...prev, [entityKey]: prev[entityKey].map((row) => (keyOf(row) === id ? { ...row, ...patch } : row)) }));
+    setData((prev) => ({ ...prev, [entityKey]: (Array.isArray(prev[entityKey]) ? prev[entityKey] : []).map((row) => (keyOf(row) === id ? { ...row, ...patch } : row)) }));
   }, []);
 
   const removeRow = useCallback((entityKey, id) => {
-    setData((prev) => ({ ...prev, [entityKey]: prev[entityKey].filter((row) => keyOf(row) !== id) }));
+    setData((prev) => ({ ...prev, [entityKey]: (Array.isArray(prev[entityKey]) ? prev[entityKey] : []).filter((row) => keyOf(row) !== id) }));
   }, []);
 
-  const getActiveBom = useCallback((productCode) => (data["bill-of-materials-bom"] || []).find((bom) => bom.product === productCode && bom.status === "Active"), [data]);
+  const getActiveBom = useCallback((productCode) => getRows("bill-of-materials-bom").find((bom) => bom.product === productCode && bom.status === "Active"), [getRows]);
 
-  const getBom = useCallback((bomId) => (data["bill-of-materials-bom"] || []).find((bom) => bom.id === bomId), [data]);
+  const getBom = useCallback((bomId) => getRows("bill-of-materials-bom").find((bom) => bom.id === bomId), [getRows]);
 
   const activateBom = useCallback((bomId) => {
     setData((prev) => {
-      const rows = prev["bill-of-materials-bom"];
+      const rows = Array.isArray(prev["bill-of-materials-bom"]) ? prev["bill-of-materials-bom"] : [];
       const target = rows.find((b) => b.id === bomId);
       if (!target) return prev;
       const next = rows.map((b) => {
@@ -76,7 +76,7 @@ export function ManufacturingDataProvider({ children, storageScope }) {
   const getIssuedForWorkOrder = useCallback(
     (workOrderId) => {
       const totals = {};
-      (data["material-issue"] || [])
+      getRows("material-issue")
         .filter((mi) => mi.workOrder === workOrderId && mi.status === "Issued")
         .forEach((mi) => {
           mi.items.forEach((item) => {
@@ -86,13 +86,13 @@ export function ManufacturingDataProvider({ children, storageScope }) {
         });
       return totals;
     },
-    [data]
+    [getRows]
   );
 
   const getConsumedForWorkOrder = useCallback(
     (workOrderId) => {
       const totals = {};
-      (data["material-consumption"] || [])
+      getRows("material-consumption")
         .filter((mc) => mc.workOrder === workOrderId && mc.status === "Posted")
         .forEach((mc) => {
           mc.items.forEach((item) => {
@@ -102,7 +102,7 @@ export function ManufacturingDataProvider({ children, storageScope }) {
         });
       return totals;
     },
-    [data]
+    [getRows]
   );
 
   const getFgStock = useCallback((productCode) => Object.values(fgBalances[productCode] || {}).reduce((sum, qty) => sum + (Number(qty) || 0), 0), [fgBalances]);

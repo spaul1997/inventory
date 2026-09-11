@@ -1,6 +1,6 @@
 import { apiRequest } from "../lib/api.js";
 
-const purchaseApiEntities = new Set(["purchase-request", "purchase-order", "goods-receipt", "purchase-return"]);
+const purchaseApiEntities = new Set(["purchase-request", "purchase-order", "goods-receipt", "purchase-issue", "purchase-return"]);
 
 function pathFor(entityKey, id = "") {
   const base = `/purchase-management/${encodeURIComponent(entityKey)}`;

@@ -65,6 +65,7 @@ const badgeTones = {
   Approved: green,
   Received: green,
   Completed: green,
+  "Completed GRN": green,
   Converted: green,
   Returned: green,
   Accepted: green,
@@ -100,6 +101,7 @@ const badgeTones = {
   "Under Inspection": amber,
 
   Ordered: blue,
+  "Partial Issue": blue,
   "Partially Received": blue,
   "Partially Accepted": blue,
   "Partially Passed": blue,
@@ -114,6 +116,7 @@ const badgeTones = {
   "Partially Allocated": blue,
   Reserved: blue,
   "Vehicle Assigned": blue,
+  "Full Issue": green,
 
   Expired: red,
   Blocked: red,

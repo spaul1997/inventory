@@ -18,7 +18,7 @@ const purchaseManagementDocumentSchema = new mongoose.Schema(
 
     entityKey: {
       type: String,
-      enum: ["purchase-request", "purchase-order", "goods-receipt", "purchase-return"],
+      enum: ["purchase-request", "purchase-order", "goods-receipt", "purchase-issue", "purchase-return"],
       required: true,
       index: true,
     },

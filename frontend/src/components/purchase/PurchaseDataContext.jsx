@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo } from "react";
 import { purchaseEntities } from "../../data/purchaseManagement.js";
-import { useScopedState } from "../../lib/scopedStorage.js";
+import { sanitizeEntityCollections, useScopedState } from "../../lib/scopedStorage.js";
 import {
   createPurchaseRow,
   hasPurchaseApiEntity,
@@ -31,7 +31,7 @@ function initialState() {
 }
 
 export function PurchaseDataProvider({ children, storageScope, token }) {
-  const [data, setData] = useScopedState(storageScope, "purchase-data", initialState);
+  const [data, setData] = useScopedState(storageScope, "purchase-data", initialState, sanitizeEntityCollections);
 
   useEffect(() => {
     if (!token || !storageScope) return undefined;
@@ -59,7 +59,7 @@ export function PurchaseDataProvider({ children, storageScope, token }) {
   }, [setData, storageScope, token]);
 
   const normalizedData = useMemo(() => {
-    const requestRows = data["purchase-request"] || [];
+    const requestRows = Array.isArray(data["purchase-request"]) ? data["purchase-request"] : [];
     const filteredRequests = requestRows
       .filter((row) => !isDemoPurchaseRequest(row))
       .map(normalizePurchaseRequest);
@@ -73,8 +73,8 @@ export function PurchaseDataProvider({ children, storageScope, token }) {
     if (normalizedData !== data) setData(normalizedData);
   }, [data, normalizedData, setData]);
 
-  const getRows = useCallback((entityKey) => normalizedData[entityKey] || [], [normalizedData]);
-  const getRecord = useCallback((entityKey, id) => (normalizedData[entityKey] || []).find((row) => row.id === id), [normalizedData]);
+  const getRows = useCallback((entityKey) => (Array.isArray(normalizedData[entityKey]) ? normalizedData[entityKey] : []), [normalizedData]);
+  const getRecord = useCallback((entityKey, id) => getRows(entityKey).find((row) => row.id === id), [getRows]);
 
   const addRow = useCallback(async (entityKey, record) => {
     if (token && hasPurchaseApiEntity(entityKey)) {
@@ -83,7 +83,7 @@ export function PurchaseDataProvider({ children, storageScope, token }) {
       return row;
     }
 
-    setData((prev) => ({ ...prev, [entityKey]: [{ ...record }, ...prev[entityKey]] }));
+    setData((prev) => ({ ...prev, [entityKey]: [{ ...record }, ...(Array.isArray(prev[entityKey]) ? prev[entityKey] : [])] }));
     return record;
   }, [setData, token]);
 
@@ -101,12 +101,19 @@ export function PurchaseDataProvider({ children, storageScope, token }) {
 
     setData((prev) => ({
       ...prev,
-      [entityKey]: prev[entityKey].map((row) => (row.id === id ? { ...row, ...patch } : row)),
+      [entityKey]: (Array.isArray(prev[entityKey]) ? prev[entityKey] : []).map((row) => (row.id === id ? { ...row, ...patch } : row)),
     }));
     return patch;
   }, [normalizedData, setData, token]);
 
-  const value = useMemo(() => ({ getRows, getRecord, addRow, updateRow }), [getRows, getRecord, addRow, updateRow]);
+  const removeRow = useCallback((entityKey, id) => {
+    setData((prev) => ({
+      ...prev,
+      [entityKey]: (Array.isArray(prev[entityKey]) ? prev[entityKey] : []).filter((row) => row.id !== id),
+    }));
+  }, [setData]);
+
+  const value = useMemo(() => ({ getRows, getRecord, addRow, updateRow, removeRow }), [getRows, getRecord, addRow, updateRow, removeRow]);
 
   return <PurchaseDataContext.Provider value={value}>{children}</PurchaseDataContext.Provider>;
 }

@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useMemo } from "react";
 import { salesEntities } from "../../data/sales/entities.js";
 import { computeOrderTotals, today } from "../../data/sales/shared.js";
-import { useScopedState } from "../../lib/scopedStorage.js";
+import { sanitizeEntityCollections, useScopedState } from "../../lib/scopedStorage.js";
 import { useMasterData } from "../master/MasterDataContext.jsx";
 
 const SalesDataContext = createContext(null);
@@ -46,22 +46,22 @@ function initialReservedQty() {
 
 export function SalesDataProvider({ children, storageScope }) {
   const masterData = useMasterData();
-  const [data, setData] = useScopedState(storageScope, "sales-data", initialEntityState);
+  const [data, setData] = useScopedState(storageScope, "sales-data", initialEntityState, sanitizeEntityCollections);
   const [reservedQty, setReservedQty] = useScopedState(storageScope, "sales-reserved-qty", initialReservedQty);
 
-  const getRows = useCallback((entityKey) => data[entityKey] || [], [data]);
-  const getRecord = useCallback((entityKey, id) => (data[entityKey] || []).find((row) => keyOf(row) === id), [data]);
+  const getRows = useCallback((entityKey) => (Array.isArray(data[entityKey]) ? data[entityKey] : []), [data]);
+  const getRecord = useCallback((entityKey, id) => getRows(entityKey).find((row) => keyOf(row) === id), [getRows]);
 
   const addRow = useCallback((entityKey, record) => {
-    setData((prev) => ({ ...prev, [entityKey]: [{ ...record }, ...prev[entityKey]] }));
+    setData((prev) => ({ ...prev, [entityKey]: [{ ...record }, ...(Array.isArray(prev[entityKey]) ? prev[entityKey] : [])] }));
   }, []);
 
   const updateRow = useCallback((entityKey, id, patch) => {
-    setData((prev) => ({ ...prev, [entityKey]: prev[entityKey].map((row) => (keyOf(row) === id ? { ...row, ...patch } : row)) }));
+    setData((prev) => ({ ...prev, [entityKey]: (Array.isArray(prev[entityKey]) ? prev[entityKey] : []).map((row) => (keyOf(row) === id ? { ...row, ...patch } : row)) }));
   }, []);
 
   const removeRow = useCallback((entityKey, id) => {
-    setData((prev) => ({ ...prev, [entityKey]: prev[entityKey].filter((row) => keyOf(row) !== id) }));
+    setData((prev) => ({ ...prev, [entityKey]: (Array.isArray(prev[entityKey]) ? prev[entityKey] : []).filter((row) => keyOf(row) !== id) }));
   }, []);
 
   const getProduct = useCallback((code) => masterData.getRows("product-item").find((p) => p.code === code), [masterData]);
@@ -128,7 +128,7 @@ export function SalesDataProvider({ children, storageScope }) {
   // flushed into this render's closures yet.
   const recordPayment = useCallback(
     (invoiceId, payment) => {
-      const invoice = (data["sales-invoice"] || []).find((row) => row.id === invoiceId);
+      const invoice = getRows("sales-invoice").find((row) => row.id === invoiceId);
       if (!invoice) return null;
       const totals = computeOrderTotals(invoice.items, invoice);
       const payments = [...(invoice.payments || []), { date: today(), ...payment }];
@@ -138,7 +138,7 @@ export function SalesDataProvider({ children, storageScope }) {
       updateRow("sales-invoice", invoiceId, patch);
       return { ...invoice, ...patch };
     },
-    [data, updateRow]
+    [getRows, updateRow]
   );
 
   const value = useMemo(

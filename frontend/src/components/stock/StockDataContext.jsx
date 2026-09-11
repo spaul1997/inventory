@@ -6,7 +6,7 @@ import {
   initialBatches,
 } from "../../data/stockManagement.js";
 import { useMasterData } from "../master/MasterDataContext.jsx";
-import { useScopedState } from "../../lib/scopedStorage.js";
+import { sanitizeEntityCollections, useScopedState } from "../../lib/scopedStorage.js";
 
 const StockDataContext = createContext(null);
 
@@ -22,20 +22,20 @@ let movementCounter = initialMovements.length;
 
 export function StockDataProvider({ children, storageScope }) {
   const masterData = useMasterData();
-  const [data, setData] = useScopedState(storageScope, "stock-data", initialEntityState);
+  const [data, setData] = useScopedState(storageScope, "stock-data", initialEntityState, sanitizeEntityCollections);
   const [balances, setBalances] = useScopedState(storageScope, "stock-balances", () => initialBalances);
   const [movements, setMovements] = useScopedState(storageScope, "stock-movements", () => initialMovements);
-  const [batches] = useScopedState(storageScope, "stock-batches", () => initialBatches);
+  const [batches, setBatches] = useScopedState(storageScope, "stock-batches", () => initialBatches);
 
-  const getRows = useCallback((entityKey) => data[entityKey] || [], [data]);
-  const getRecord = useCallback((entityKey, id) => (data[entityKey] || []).find((row) => row.id === id), [data]);
+  const getRows = useCallback((entityKey) => (Array.isArray(data[entityKey]) ? data[entityKey] : []), [data]);
+  const getRecord = useCallback((entityKey, id) => getRows(entityKey).find((row) => row.id === id), [getRows]);
 
   const addRow = useCallback((entityKey, record) => {
-    setData((prev) => ({ ...prev, [entityKey]: [{ ...record }, ...prev[entityKey]] }));
+    setData((prev) => ({ ...prev, [entityKey]: [{ ...record }, ...(Array.isArray(prev[entityKey]) ? prev[entityKey] : [])] }));
   }, []);
 
   const updateRow = useCallback((entityKey, id, patch) => {
-    setData((prev) => ({ ...prev, [entityKey]: prev[entityKey].map((row) => (row.id === id ? { ...row, ...patch } : row)) }));
+    setData((prev) => ({ ...prev, [entityKey]: (Array.isArray(prev[entityKey]) ? prev[entityKey] : []).map((row) => (row.id === id ? { ...row, ...patch } : row)) }));
   }, []);
 
   const getAvailable = useCallback((code, warehouse) => (balances[code]?.[warehouse]) || 0, [balances]);
@@ -60,8 +60,72 @@ export function StockDataProvider({ children, storageScope }) {
     setMovements((prev) => [...entries.map((entry) => ({ id: nextMovementId(), ...entry })).reverse(), ...prev]);
   }, []);
 
+  const updateBatchesFromStockIn = useCallback((items, { warehouse, reference, supplier }) => {
+    const batchItems = (items || [])
+      .map((item) => ({ ...item, batch: String(item.batch || "").trim(), qty: Number(item.qty) || 0 }))
+      .filter((item) => item.batch && item.code && item.qty > 0);
+    if (batchItems.length === 0) return;
+
+    setBatches((prev) => {
+      const next = [...prev];
+      batchItems.forEach((item) => {
+        const existingIndex = next.findIndex((batch) => batch.id === item.batch && batch.code === item.code && batch.warehouse === warehouse);
+        if (existingIndex >= 0) {
+          const existing = next[existingIndex];
+          next[existingIndex] = {
+            ...existing,
+            qty: (Number(existing.qty) || 0) + item.qty,
+            expiryDate: item.expiry || existing.expiryDate || "",
+            reference: reference || existing.reference,
+            supplier: supplier || existing.supplier,
+            status: "Active",
+          };
+          return;
+        }
+
+        next.unshift({
+          id: item.batch,
+          code: item.code,
+          item: item.name || item.code,
+          mfgDate: item.mfgDate || "",
+          expiryDate: item.expiry || item.expiryDate || "",
+          qty: item.qty,
+          warehouse,
+          location: item.location || "",
+          supplier: supplier || "",
+          reference: reference || "",
+          status: "Active",
+        });
+      });
+      return next;
+    });
+  }, [setBatches]);
+
+  const updateBatchesFromStockOut = useCallback((items, { warehouse }) => {
+    const batchItems = (items || [])
+      .map((item) => ({ ...item, batch: String(item.batch || "").trim(), qty: Number(item.qty) || 0 }))
+      .filter((item) => item.batch && item.code && item.qty > 0);
+    if (batchItems.length === 0) return;
+
+    setBatches((prev) =>
+      prev.map((batch) => {
+        const issuedQty = batchItems
+          .filter((item) => item.batch === batch.id && item.code === batch.code && batch.warehouse === warehouse)
+          .reduce((sum, item) => sum + item.qty, 0);
+        if (issuedQty <= 0) return batch;
+
+        const qty = Math.max(0, (Number(batch.qty) || 0) - issuedQty);
+        return {
+          ...batch,
+          qty,
+          status: qty > 0 ? batch.status : "Consumed",
+        };
+      })
+    );
+  }, [setBatches]);
+
   const postStockIn = useCallback(
-    (items, { warehouse, reference, user, date }) => {
+    (items, { warehouse, reference, user, date, supplier }) => {
       setBalances((prev) => {
         const next = { ...prev };
         const entries = [];
@@ -78,8 +142,9 @@ export function StockDataProvider({ children, storageScope }) {
         pushMovements(entries);
         return next;
       });
+      updateBatchesFromStockIn(items, { warehouse, reference, supplier });
     },
-    [pushMovements]
+    [pushMovements, updateBatchesFromStockIn]
   );
 
   const postStockOut = useCallback(
@@ -100,8 +165,9 @@ export function StockDataProvider({ children, storageScope }) {
         pushMovements(entries);
         return next;
       });
+      updateBatchesFromStockOut(items, { warehouse });
     },
-    [pushMovements]
+    [pushMovements, updateBatchesFromStockOut]
   );
 
   const postTransfer = useCallback(

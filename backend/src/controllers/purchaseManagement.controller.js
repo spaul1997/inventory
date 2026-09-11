@@ -1,6 +1,6 @@
 import PurchaseManagementDocument from "../models/PurchaseManagementDocument.js";
 
-const purchaseEntityKeys = new Set(["purchase-request", "purchase-order", "goods-receipt", "purchase-return"]);
+const purchaseEntityKeys = new Set(["purchase-request", "purchase-order", "goods-receipt", "purchase-issue", "purchase-return"]);
 const normalize = (value) => String(value ?? "").trim();
 
 const serializePurchaseDocument = (document) => ({

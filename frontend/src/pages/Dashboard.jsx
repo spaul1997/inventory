@@ -36,6 +36,17 @@ const todayLabel = new Intl.DateTimeFormat("en-IN", { weekday: "long", day: "num
 
 const categoryPalette = ["#2563eb", "#0f2a43", "#0ea5e9", "#d97706", "#94a3b8", "#16a34a"];
 
+function toValidDate(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function compareDatesDesc(a, b) {
+  const aTime = toValidDate(a.date)?.getTime() ?? 0;
+  const bTime = toValidDate(b.date)?.getTime() ?? 0;
+  return bTime - aTime;
+}
+
 function greeting() {
   const hour = new Date().getHours();
   if (hour < 12) return "Good Morning";
@@ -72,6 +83,7 @@ export default function Dashboard() {
 
   const trendByDate = new Map();
   function addTrend(date, key, amount) {
+    if (!toValidDate(date)) return;
     const entry = trendByDate.get(date) || { date, purchases: 0, sales: 0 };
     entry[key] += amount;
     trendByDate.set(date, entry);
@@ -79,13 +91,13 @@ export default function Dashboard() {
   purchases.forEach((po) => addTrend(po.date, "purchases", poTotals(po.items || []).grandTotal));
   sales.forEach((sale) => addTrend(sale.date, "sales", computeOrderTotals(sale.items || [], sale).grandTotal));
   const weeklyTrend = [...trendByDate.values()]
-    .sort((a, b) => new Date(a.date) - new Date(b.date))
-    .map((entry) => ({ ...entry, label: dayLabel.format(new Date(entry.date)) }));
+    .sort((a, b) => toValidDate(a.date) - toValidDate(b.date))
+    .map((entry) => ({ ...entry, label: dayLabel.format(toValidDate(entry.date)) }));
 
   const recentActivity = [
     ...purchases.map((po) => ({ type: "purchase", id: po.id, party: po.vendor, amount: poTotals(po.items || []).grandTotal, date: po.date })),
     ...sales.map((sale) => ({ type: "sale", id: sale.id, party: sale.customerName || sale.customerId, amount: computeOrderTotals(sale.items || [], sale).grandTotal, date: sale.date })),
-  ].sort((a, b) => new Date(b.date) - new Date(a.date));
+  ].sort(compareDatesDesc);
 
   return (
     <div className="space-y-5">
@@ -237,7 +249,7 @@ export default function Dashboard() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-[var(--ink)]">{entry.party}</p>
                     <p className="flex items-center gap-1 text-xs text-[var(--muted)]">
-                      <Clock size={11} /> {entry.id} · {entry.date}
+                      <Clock size={11} /> {entry.id} · {toValidDate(entry.date) ? entry.date : "No date"}
                     </p>
                   </div>
                   <span className={`text-sm font-semibold ${inbound ? "text-[var(--ink)]" : "text-[var(--primary)]"}`}>

@@ -7,7 +7,7 @@ import {
   listMasterRows,
   updateMasterRow,
 } from "../../services/masterService.js";
-import { useScopedState } from "../../lib/scopedStorage.js";
+import { sanitizeEntityCollections, useScopedState } from "../../lib/scopedStorage.js";
 
 const MasterDataContext = createContext(null);
 
@@ -20,7 +20,7 @@ function initialState() {
 }
 
 export function MasterDataProvider({ children, storageScope, token }) {
-  const [data, setData] = useScopedState(storageScope, "master-data", initialState);
+  const [data, setData] = useScopedState(storageScope, "master-data", initialState, sanitizeEntityCollections);
   const [loading, setLoading] = useState({});
   const [error, setError] = useState({});
 
@@ -63,7 +63,7 @@ export function MasterDataProvider({ children, storageScope, token }) {
     };
   }, [setData, storageScope, token]);
 
-  const getRows = useCallback((entityKey) => data[entityKey] || [], [data]);
+  const getRows = useCallback((entityKey) => (Array.isArray(data[entityKey]) ? data[entityKey] : []), [data]);
 
   const addRow = useCallback(async (entityKey, record) => {
     if (getMasterApiEntity(entityKey)) {
@@ -72,7 +72,7 @@ export function MasterDataProvider({ children, storageScope, token }) {
       return row;
     }
 
-    setData((prev) => ({ ...prev, [entityKey]: [{ ...record }, ...prev[entityKey]] }));
+    setData((prev) => ({ ...prev, [entityKey]: [{ ...record }, ...(Array.isArray(prev[entityKey]) ? prev[entityKey] : [])] }));
     return record;
   }, [setData, token]);
 
@@ -88,7 +88,7 @@ export function MasterDataProvider({ children, storageScope, token }) {
 
     setData((prev) => ({
       ...prev,
-      [entityKey]: prev[entityKey].map((row) => (row.code === id ? { ...row, ...patch } : row)),
+      [entityKey]: (Array.isArray(prev[entityKey]) ? prev[entityKey] : []).map((row) => (row.code === id ? { ...row, ...patch } : row)),
     }));
     return patch;
   }, [setData, token]);

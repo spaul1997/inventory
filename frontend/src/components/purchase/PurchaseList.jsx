@@ -17,6 +17,7 @@ import {
   Search as SearchIcon,
   SearchX,
   Send,
+  Trash2,
   X,
 } from "lucide-react";
 import { formatDisplayDate, purchaseEntities } from "../../data/purchaseManagement.js";
@@ -28,7 +29,7 @@ import { useAuth } from "../../stores/AuthStore.jsx";
 
 const money = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 const PAGE_SIZE = 5;
-const poCoverageStatuses = new Set(["Pending Approval", "Approved", "Ordered", "Partially Received", "Received"]);
+const poCoverageStatuses = new Set(["Pending Approval", "Approved", "Ordered", "Partially Received", "Completed GRN", "Received"]);
 
 const summaryTones = {
   primary: "text-[var(--primary)] bg-blue-50",
@@ -48,7 +49,7 @@ const summaryGridCols = {
   6: "sm:grid-cols-3 xl:grid-cols-6",
 };
 
-const rowActionIcons = { Eye, Pencil, Check, X, ArrowRightCircle, Printer, Send, Ban, PackageCheck };
+const rowActionIcons = { Eye, Pencil, Check, X, ArrowRightCircle, Printer, Send, Ban, PackageCheck, Trash2 };
 
 function uniqueOptions(values) {
   return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
@@ -120,7 +121,7 @@ function toCsv(columns, rows) {
 
 export function PurchaseList({ entityKey }) {
   const entity = purchaseEntities[entityKey];
-  const { getRows, updateRow } = usePurchaseData();
+  const { getRows, updateRow, removeRow } = usePurchaseData();
   const masterData = useMasterData();
   const { session } = useAuth();
   const showToast = useToast();
@@ -214,6 +215,16 @@ export function PurchaseList({ entityKey }) {
   function runAction(action, row) {
     setOpenMenuFor(null);
 
+    if (entityKey === "purchase-request" && action.key === "receive") {
+      const hasCompletedIssue = getRows("purchase-issue").some((issue) => {
+        return issue.requisitionNo === row.id && ["Issued", "Issue Complete"].includes(issue.status) && issue.stockUpdated !== false;
+      });
+      if (hasCompletedIssue) {
+        showToast("This purchase request already has a completed issue and cannot be marked received.", "error");
+        return;
+      }
+    }
+
     if (action.print) {
       navigate(`/purchase-management/${entityKey}/${row.id}/view`);
       return;
@@ -224,6 +235,10 @@ export function PurchaseList({ entityKey }) {
     }
     if (action.key === "edit") {
       navigate(`/purchase-management/${entityKey}/${row.id}/edit`);
+      return;
+    }
+    if (action.delete) {
+      setConfirmAction({ action, row });
       return;
     }
     if (action.convertsTo) {
@@ -423,6 +438,22 @@ export function PurchaseList({ entityKey }) {
       setRejectionReasonError("");
     } catch (error) {
       showToast(error.message || `Unable to update ${row.id}.`, "error");
+    }
+  }
+
+  async function deleteRow(row) {
+    if (row.status !== "Draft") {
+      showToast("Only draft records can be deleted.", "error");
+      setConfirmAction(null);
+      return;
+    }
+
+    try {
+      await removeRow(entityKey, row.id);
+      showToast(`${row.id} deleted.`);
+      setConfirmAction(null);
+    } catch (error) {
+      showToast(error.message || `Unable to delete ${row.id}.`, "error");
     }
   }
 
@@ -695,10 +726,14 @@ export function PurchaseList({ entityKey }) {
       <ConfirmDialog
         open={Boolean(confirmAction)}
         title={confirmAction?.action.confirm || "Are you sure?"}
-        message={`This will update ${confirmAction?.row.id} to "${confirmAction?.action.setStatus}".`}
+        message={
+          confirmAction?.action.delete
+            ? `This will delete draft ${confirmAction?.row.id}.`
+            : `This will update ${confirmAction?.row.id} to "${confirmAction?.action.setStatus}".`
+        }
         confirmLabel={confirmAction?.action.label}
         tone={confirmAction?.action.tone}
-        onConfirm={() => applyStatusChange(confirmAction.action, confirmAction.row)}
+        onConfirm={() => (confirmAction?.action.delete ? deleteRow(confirmAction.row) : applyStatusChange(confirmAction.action, confirmAction.row))}
         onCancel={() => setConfirmAction(null)}
       />
       <RejectionReasonDialog

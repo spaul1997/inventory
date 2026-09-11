@@ -19,7 +19,7 @@ const rawSections = [
   { label: "Dashboard", to: "/dashboard" },
   {
     label: "Purchase Management",
-    children: ["Purchase Request", "Purchase Order", "Goods Receipt", "Purchase Return"],
+    children: ["Purchase Request", "Purchase Order", "Goods Receipt", "Purchase Issue", "Purchase Return"],
   },
   {
     label: "Stock Management",

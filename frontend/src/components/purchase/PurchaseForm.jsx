@@ -6,6 +6,7 @@ import { purchaseEntities, materialByCode, lineTotal, poTotals } from "../../dat
 import { ConfirmDialog } from "../ui.jsx";
 import { usePurchaseData } from "./PurchaseDataContext.jsx";
 import { useMasterData } from "../master/MasterDataContext.jsx";
+import { useStockData } from "../stock/StockDataContext.jsx";
 import { useToast } from "../Toast.jsx";
 import { useAuth } from "../../stores/AuthStore.jsx";
 import { WorkflowTimeline } from "./WorkflowTimeline.jsx";
@@ -14,10 +15,17 @@ import { DocumentChain } from "./DocumentChain.jsx";
 const money = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 });
 const today = () => new Date().toISOString().slice(0, 10);
 const currentTime = () => new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+const currentDisplayDateTime = () => {
+  const now = new Date();
+  return `${String(now.getDate()).padStart(2, "0")}-${String(now.getMonth() + 1).padStart(2, "0")}-${now.getFullYear()} ${now.toLocaleTimeString("en-IN", {
+    hour: "numeric",
+    minute: "2-digit",
+  })}`;
+};
 
-const idPrefixes = { "purchase-request": "PR", "purchase-order": "PO", "goods-receipt": "GRN", "purchase-return": "RET" };
-const editLockedStatuses = ["Approved", "Rejected", "Ordered", "Partially Received", "Received", "Returned", "Cancelled", "Completed"];
-const poCoverageStatuses = new Set(["Pending Approval", "Approved", "Ordered", "Partially Received", "Received"]);
+const idPrefixes = { "purchase-request": "PR", "purchase-order": "PO", "goods-receipt": "GRN", "purchase-issue": "PI", "purchase-return": "RET" };
+const editLockedStatuses = ["Approved", "Rejected", "Ordered", "Partially Received", "Completed GRN", "Received", "Issued", "Issue Complete", "Returned", "Cancelled", "Completed"];
+const poCoverageStatuses = new Set(["Pending Approval", "Approved", "Ordered", "Partially Received", "Completed GRN", "Received"]);
 
 function nextId(entityKey, rows) {
   const prefix = idPrefixes[entityKey];
@@ -29,8 +37,9 @@ function nextId(entityKey, rows) {
 
 const workflowSteps = {
   "purchase-request": ["Created", "Submitted for Approval", "Approved", "Received"],
-  "purchase-order": ["Created", "Approved", "Sent to Supplier", "Complete GRN"],
-  "goods-receipt": ["Created", "Submitted for Inspection", "Inspection Completed", "Complete GRN"],
+  "purchase-order": ["Created", "Approved", "Sent to Supplier", "Completed GRN"],
+  "goods-receipt": ["Created", "Submitted for Inspection", "Inspection Completed", "Stock Updated"],
+  "purchase-issue": ["Created", "Submitted for Approval", "Approved", "Stock Issued"],
   "purchase-return": ["Created", "Submitted for Approval", "Approved", "Stock Deducted"],
 };
 
@@ -38,6 +47,7 @@ const rejectedWorkflowSteps = {
   "purchase-request": ["Created", "Submitted for Approval", "Rejected"],
   "purchase-order": ["Created", "Submitted for Approval", "Rejected"],
   "goods-receipt": ["Created", "Submitted for Inspection", "Rejected"],
+  "purchase-issue": ["Created", "Submitted for Approval", "Rejected"],
   "purchase-return": ["Created", "Submitted for Approval", "Rejected"],
 };
 
@@ -100,6 +110,13 @@ function documentLinks(entityKey, values) {
       { label: "Purchase Return", id: values.id },
     ];
   }
+  if (entityKey === "purchase-issue") {
+    return [
+      { label: "Purchase Order", id: values.refPO, to: values.refPO && `/purchase-management/purchase-order/${values.refPO}/view` },
+      { label: "Goods Receipt", id: values.refGRN, to: values.refGRN && `/purchase-management/goods-receipt/${values.refGRN}/view` },
+      { label: "Purchase Issue", id: values.id },
+    ];
+  }
   return [{ label: "Purchase Request", id: values.id }];
 }
 
@@ -141,7 +158,7 @@ function grnLineAmount(row) {
   return taxableAmount * (1 + taxPercent / 100);
 }
 
-function MaterialLineItemSelect({ row, disabled, onChange, materialRows = [], selectedCodes = new Set(), compact = false }) {
+function MaterialLineItemSelect({ row, disabled, onChange, materialRows = [], selectedCodes = new Set(), compact = false, placeholder = "Search item name..." }) {
   const selectedMaterial = materialRows.find((m) => m.code === row.code);
   const selectedLabel = row.code ? materialOptionLabel(selectedMaterial || row) : "";
   const [open, setOpen] = useState(false);
@@ -222,7 +239,7 @@ function MaterialLineItemSelect({ row, disabled, onChange, materialRows = [], se
         type="text"
         disabled={disabled}
         value={query}
-        placeholder="Search item name..."
+        placeholder={placeholder}
         onFocus={openDropdown}
         onChange={(event) => {
           openDropdown();
@@ -269,13 +286,55 @@ function MaterialLineItemSelect({ row, disabled, onChange, materialRows = [], se
   );
 }
 
-function LineItemCell({ column, row, disabled, onChange, materialRows = [], selectedCodes = new Set(), compact = false }) {
+function LineItemCell({ column, row, disabled, onChange, materialRows = [], selectedCodes = new Set(), compact = false, stockBatches = [] }) {
   const readOnly = disabled || column.readOnly;
   const isCompact = compact || column.compact;
   const displayClass = `block whitespace-nowrap rounded border border-[var(--line)] bg-slate-100 text-right text-[var(--muted)] ${isCompact ? "px-1 py-1 text-xs" : "px-2 py-1.5 text-sm"}`;
+  const inputClass = `w-full ${isCompact ? "min-w-[44px] px-1 py-1 text-xs" : "min-w-[90px] px-2 py-1.5 text-sm"} rounded border border-[var(--line)] ${column.type === "number" ? "text-right" : ""}`;
 
   if (column.type === "material-select") {
-    return <MaterialLineItemSelect row={row} disabled={readOnly} onChange={onChange} materialRows={materialRows} selectedCodes={selectedCodes} compact={isCompact} />;
+    return <MaterialLineItemSelect row={row} disabled={readOnly} onChange={onChange} materialRows={materialRows} selectedCodes={selectedCodes} compact={isCompact} placeholder={column.placeholder} />;
+  }
+
+  if (column.type === "batch-select") {
+    const batchOptions = stockBatches.filter((batch) => batch.code === row.code && batch.status !== "Consumed" && (Number(batch.qty) || 0) > 0);
+    return (
+      <select
+        disabled={readOnly || !row.code}
+        value={row.batch || ""}
+        onChange={(event) => {
+          const batch = batchOptions.find((item) => item.id === event.target.value);
+          onChange({
+            ...row,
+            batch: event.target.value,
+            expiry: batch?.expiryDate || "0",
+            availableQty: batch ? Number(batch.qty) || 0 : row.availableQty,
+            warehouse: batch?.warehouse || row.warehouse || "",
+          });
+        }}
+        className={inputClass}
+      >
+        <option value="">{column.placeholder || "Select one..."}</option>
+        {batchOptions.map((batch) => (
+          <option key={`${batch.id}-${batch.warehouse}`} value={batch.id}>
+            {batch.id}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  if (column.type === "line-select") {
+    return (
+      <select disabled={readOnly} value={row[column.key] || ""} onChange={(event) => onChange({ ...row, [column.key]: event.target.value })} className={inputClass}>
+        <option value="">{column.placeholder || "Select one..."}</option>
+        {(column.options || []).map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    );
   }
 
   if (column.type === "material-select") {
@@ -333,9 +392,12 @@ function LineItemCell({ column, row, disabled, onChange, materialRows = [], sele
           patch.receivedQty = value;
           patch.acceptedQty = value;
         }
+        if (column.syncIssueQuantity) {
+          patch.issueQty = value;
+        }
         onChange(patch);
       }}
-      className={`w-full ${isCompact ? "min-w-[44px] px-1 py-1 text-xs" : "min-w-[90px] px-2 py-1.5 text-sm"} rounded border border-[var(--line)] ${column.type === "number" ? "text-right" : ""}`}
+      className={inputClass}
     />
   );
 }
@@ -348,6 +410,7 @@ const lineItemNumericColumnKeys = new Set([
   "rejectedQty",
   "availableQty",
   "returnQty",
+  "issueQty",
   "price",
   "discount",
   "tax",
@@ -371,7 +434,7 @@ function lineItemColumnClass(column) {
   return `purchase-lineitems-col purchase-lineitems-col-${column.key} ${numeric ? "text-right" : ""}`;
 }
 
-function LineItemsField({ field, rows, disabled, onChange, materialRows, hideAddButton = false }) {
+function LineItemsField({ field, rows, disabled, onChange, materialRows, stockBatches = [], hideAddButton = false }) {
   const items = Array.isArray(rows) ? rows : [];
   const hasColumnGroups = Array.isArray(field.columnGroups) && field.columnGroups.length > 0;
   const compactRows = Boolean(field.compactRows);
@@ -383,9 +446,12 @@ function LineItemsField({ field, rows, disabled, onChange, materialRows, hideAdd
       ? poTotals(items)
       : field.totals === "return"
         ? { grandTotal: items.reduce((s, i) => s + (Number(i.returnQty) || 0) * (Number(i.price) || 0), 0) }
+        : field.totals === "issue"
+          ? { grandTotal: items.reduce((s, i) => s + (Number(i.issueQty) || 0) * (Number(i.price) || 0), 0) }
         : field.totals === "request"
           ? { grandTotal: items.reduce((s, i) => s + (Number(i.qty) || 0) * (Number(i.price) || 0), 0) }
           : null;
+  const defaultRow = () => ({ ...(field.defaultRow || {}) });
 
   return (
     <div>
@@ -455,7 +521,8 @@ function LineItemsField({ field, rows, disabled, onChange, materialRows, hideAdd
                       disabled={disabled}
                       materialRows={materialRows}
                       compact={compactRows}
-                      selectedCodes={new Set(items.filter((_, itemIndex) => itemIndex !== index).map((item) => item.code).filter(Boolean))}
+                      stockBatches={stockBatches}
+                      selectedCodes={field.allowDuplicateCodes ? new Set() : new Set(items.filter((_, itemIndex) => itemIndex !== index).map((item) => item.code).filter(Boolean))}
                       onChange={(next) => {
                         const updated = [...items];
                         updated[index] = next;
@@ -466,13 +533,25 @@ function LineItemsField({ field, rows, disabled, onChange, materialRows, hideAdd
                 ))}
                 {!disabled && canRemoveRows && (
                   <td className="px-2 py-1.5">
-                    <button
-                      type="button"
-                      onClick={() => onChange(items.filter((_, i) => i !== index))}
-                      className="inline-flex h-7 w-7 items-center justify-center rounded text-[var(--muted)] hover:bg-red-50 hover:text-[var(--danger)]"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    {field.inlineAddButton && index === items.length - 1 ? (
+                      <button
+                        type="button"
+                        onClick={() => onChange([...items, defaultRow()])}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border-2 border-emerald-400 text-[var(--ink)] shadow-sm hover:bg-emerald-50"
+                        aria-label="Add item"
+                      >
+                        <Plus size={15} strokeWidth={3} />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => onChange(items.filter((_, i) => i !== index))}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded text-[var(--muted)] hover:bg-red-50 hover:text-[var(--danger)]"
+                        aria-label="Remove item"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
                   </td>
                 )}
               </tr>
@@ -484,7 +563,7 @@ function LineItemsField({ field, rows, disabled, onChange, materialRows, hideAdd
       {!disabled && field.allowAddRemove && !hideAddButton && (
         <button
           type="button"
-          onClick={() => onChange([...items, {}])}
+          onClick={() => onChange([...items, defaultRow()])}
           className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--primary)] hover:text-[var(--primary-deep)]"
         >
           <Plus size={13} /> Add Item
@@ -514,7 +593,7 @@ function LineItemsField({ field, rows, disabled, onChange, materialRows, hideAdd
             </>
           ) : (
             <div className="flex justify-between font-semibold text-[var(--ink)]">
-              <span>{field.totals === "request" ? "Total Request Value" : "Total Return Value"}</span>
+              <span>{field.totals === "request" ? "Total Request Value" : field.totals === "issue" ? "Total Issue Value" : "Total Return Value"}</span>
               <span>{money.format(totals.grandTotal)}</span>
             </div>
           )}
@@ -557,7 +636,7 @@ function SearchableSelect({ field, value, options, disabled, className, onChange
         onClick={() => setOpen((current) => !current)}
         className={`${className} flex items-center justify-between gap-2 text-left`}
       >
-        <span className={value ? "" : "text-slate-400"}>{value || `Select ${field.label.toLowerCase()}...`}</span>
+        <span className={value ? "" : "text-slate-400"}>{value || field.placeholder || `Select ${field.label.toLowerCase()}...`}</span>
         <ChevronDown size={16} className={`shrink-0 text-[var(--muted)] transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && !disabled && (
@@ -641,7 +720,7 @@ function MultiSearchableSelect({ field, value, options, disabled, className, onC
                   {item}
                 </span>
               ))
-            : `Select ${field.label.toLowerCase()}...`}
+            : field.placeholder || `Select ${field.label.toLowerCase()}...`}
         </span>
         <ChevronDown size={16} className={`shrink-0 text-[var(--muted)] transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
@@ -727,7 +806,7 @@ function RejectionReasonDialog({ open, reason, error, onReasonChange, onConfirm,
   );
 }
 
-function Field({ field, value, error, disabled, onChange, materialRows }) {
+function Field({ field, value, error, disabled, onChange, materialRows, stockBatches }) {
   const fieldDisabled = disabled || field.readOnly;
   const options = field.options || [];
   const baseInput = `w-full rounded-md border bg-white px-3 py-2 text-sm text-[var(--ink)] outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-[var(--muted)] ${
@@ -737,7 +816,7 @@ function Field({ field, value, error, disabled, onChange, materialRows }) {
   if (field.type === "lineItems") {
     return (
       <div>
-        <LineItemsField field={field} rows={value} disabled={fieldDisabled} onChange={onChange} materialRows={materialRows} hideAddButton={field.hideAddButton} />
+        <LineItemsField field={field} rows={value} disabled={fieldDisabled} onChange={onChange} materialRows={materialRows} stockBatches={stockBatches} hideAddButton={field.hideAddButton} />
         {error && <p className="mt-1 text-xs text-[var(--danger)]">{error}</p>}
       </div>
     );
@@ -793,7 +872,7 @@ function Field({ field, value, error, disabled, onChange, materialRows }) {
           <SearchableSelect field={field} value={value || ""} options={options} disabled={fieldDisabled} className={baseInput} onChange={onChange} />
         ) : (
           <select value={value || ""} disabled={fieldDisabled} onChange={(event) => onChange(event.target.value)} className={baseInput}>
-            <option value="">Select {field.label.toLowerCase()}...</option>
+            <option value="">{field.placeholder || `Select ${field.label.toLowerCase()}...`}</option>
             {options.map((option) => (
               <option key={option} value={option}>
                 {option}
@@ -893,10 +972,184 @@ function isFieldVisible(field, values) {
   return true;
 }
 
+function isBlank(value) {
+  return value === undefined || value === null || String(value).trim() === "";
+}
+
+function printValue(value, fallback = "-") {
+  if (value === undefined || value === null || String(value).trim() === "") return fallback;
+  return String(value);
+}
+
+function printNumber(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return "-";
+  return parsed.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+}
+
+function printTax(row) {
+  const taxPercent = (Number(row.cgst) || 0) + (Number(row.sgst) || 0) + (Number(row.igst) || 0);
+  return taxPercent ? `${taxPercent}%` : "-";
+}
+
+function printItemLabel(row) {
+  const fallbackMaterial = materialByCode(row.code);
+  return row.name || fallbackMaterial?.name || row.code || "-";
+}
+
+function countsAgainstPurchaseOrderReceipt(row) {
+  return row.status === "Completed" && row.stockUpdated !== false;
+}
+
+function PrintInfoItem({ label, value, fallback }) {
+  return (
+    <div className="grn-print-info-item">
+      <span>{label}</span>
+      <strong>{printValue(value, fallback)}</strong>
+    </div>
+  );
+}
+
+function PrintGoodsReceipt({ values, company, companyName, companyContact }) {
+  const items = Array.isArray(values.items) ? values.items : [];
+  const totalAmount = items.reduce((sum, item) => sum + grnLineAmount(item), 0);
+  const documentRows = [
+    ["Delivery Challan", values.challanDoc],
+    ["Supplier Invoice", values.invoiceDoc],
+    ["Inspection Report", values.inspectionDoc],
+  ];
+
+  return (
+    <div className="grn-print-layout hidden print:block">
+      <div className="grn-print-company">
+        <h1>{companyName}</h1>
+        {company.address && <p>{company.address}</p>}
+        {companyContact && <p>{companyContact}</p>}
+        {company.gstNumber && <p>GST: {company.gstNumber}</p>}
+      </div>
+
+      <section className="grn-print-title">
+        <div>
+          <h2>Goods Receipt Note</h2>
+          <p>{printValue(values.refPO)} {"->"} {printValue(values.id)}</p>
+        </div>
+        <div className="grn-print-title-meta">
+          <span>GRN No: <strong>{printValue(values.id)}</strong></span>
+          <span>Status: <strong>{printValue(values.status)}</strong></span>
+          <span>Date: <strong>{printValue(values.date)}</strong></span>
+        </div>
+      </section>
+
+      <section className="grn-print-section">
+        <h3>Receipt Information</h3>
+        <div className="grn-print-info">
+          <PrintInfoItem label="Receipt Date" value={values.date} />
+          <PrintInfoItem label="Purchase Order" value={values.refPO} />
+          <PrintInfoItem label="Supplier" value={values.supplier} />
+          <PrintInfoItem label="Warehouse" value={values.warehouse} />
+          <PrintInfoItem label="Delivery Challan Number" value={values.challanNumber} />
+          <PrintInfoItem label="Supplier Invoice Number" value={values.invoiceNumber} />
+        </div>
+      </section>
+
+      <section className="grn-print-section">
+        <h3>Received Items</h3>
+        <table className="grn-print-items">
+          <colgroup>
+            <col className="grn-print-col-index" />
+            <col className="grn-print-col-item" />
+            <col className="grn-print-col-batch" />
+            <col className="grn-print-col-expiry" />
+            <col className="grn-print-col-qty" />
+            <col className="grn-print-col-qty" />
+            <col className="grn-print-col-unit" />
+            <col className="grn-print-col-money" />
+            <col className="grn-print-col-money" />
+            <col className="grn-print-col-tax" />
+            <col className="grn-print-col-money" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Item</th>
+              <th>Batch</th>
+              <th>Exp.</th>
+              <th>Order</th>
+              <th>Recv</th>
+              <th>Unit</th>
+              <th>Rate</th>
+              <th>Net</th>
+              <th>GST</th>
+              <th>Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item, index) => {
+              const discountText = [Number(item.discountPct) ? `${item.discountPct}%` : "", Number(item.discountAmount) ? money.format(Number(item.discountAmount)) : ""].filter(Boolean).join(" + ");
+              return (
+                <tr key={`${item.code || "item"}-${index}`}>
+                  <td className="grn-print-number">{index + 1}</td>
+                  <td>
+                    <strong>{printItemLabel(item)}</strong>
+                    {item.code && <span>{item.code}</span>}
+                    {discountText && <span>Discount: {discountText}</span>}
+                  </td>
+                  <td>{printValue(item.batch, "Item wise")}</td>
+                  <td>{printValue(item.expiry)}</td>
+                  <td className="grn-print-number">{printNumber(item.orderedQty)}</td>
+                  <td className="grn-print-number">{printNumber(item.receivedQty)}</td>
+                  <td>{printValue(item.unit)}</td>
+                  <td className="grn-print-number">{money.format(Number(item.rate ?? item.price) || 0)}</td>
+                  <td className="grn-print-number">{money.format(grnNetAmount(item))}</td>
+                  <td className="grn-print-number">{printTax(item)}</td>
+                  <td className="grn-print-number">{money.format(grnLineAmount(item))}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colSpan={10}>Total Amount</td>
+              <td className="grn-print-number">{money.format(totalAmount)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </section>
+
+      <section className="grn-print-section">
+        <h3>Quality Inspection</h3>
+        <div className="grn-print-info">
+          <PrintInfoItem label="Inspection Required" value={values.inspectionRequired ? "Yes" : "No"} />
+          <PrintInfoItem label="Quality Status" value={values.qualityStatus} />
+          <PrintInfoItem label="Inspector" value={values.inspectedBy} />
+          <PrintInfoItem label="Inspection Date" value={values.inspectionDate} />
+          <div className="grn-print-info-item grn-print-info-wide">
+            <span>Inspection Remarks</span>
+            <strong>{printValue(values.inspectionRemarks)}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="grn-print-section">
+        <h3>Documents</h3>
+        <div className="grn-print-documents">
+          {documentRows.map(([label, value]) => (
+            <div key={label}>
+              <span>{label}</span>
+              <strong>{printValue(value, "Not attached")}</strong>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export function PurchaseForm({ entityKey, mode, recordId }) {
   const entity = purchaseEntities[entityKey];
   const purchaseData = usePurchaseData();
   const masterData = useMasterData();
+  const stockData = useStockData();
   const { session } = useAuth();
   const showToast = useToast();
   const navigate = useNavigate();
@@ -920,10 +1173,11 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
 
     const base = {
       id: nextId(entityKey, purchaseData.getRows(entityKey)),
-      date: today(),
-      status: "Draft",
+      date: entityKey === "purchase-issue" ? currentDisplayDateTime() : today(),
+      status: entityKey === "purchase-issue" ? "Issue Incomplete" : "Draft",
       items: [],
       ...(entityKey === "purchase-request" ? { requestedBy: authUserName } : {}),
+      ...(entityKey === "purchase-issue" ? { requestedBy: authUserName } : {}),
       ...(entityKey === "purchase-order"
         ? {
             warehouse: "",
@@ -945,6 +1199,36 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
         items: source.items.map((item) => ({ code: item.code, name: item.name, qty: item.qty, unit: item.unit, price: item.price ?? (materialUnitPrice(getAnyItem(item.code)) || 0), discount: 0, tax: 12 })),
       };
     }
+    if (convertFrom?.entityKey === "purchase-request" && entityKey === "purchase-issue") {
+      const source = convertFrom.record;
+      return {
+        ...base,
+        department: source.department || "",
+        requisitionNo: source.id,
+        items: (source.items || []).map((item) => {
+          const material = getAnyItem(item.code);
+          const activeBatches = (stockData.batches || []).filter((batch) => batch.code === item.code && batch.status !== "Consumed" && (Number(batch.qty) || 0) > 0);
+          const batch = activeBatches[0];
+          const unit = item.unit || material?.unit || material?.baseUnit || "";
+          return {
+            code: item.code,
+            name: item.name || material?.name || "",
+            batch: batch?.id || "",
+            expiry: batch?.expiryDate || "0",
+            qty: item.qty,
+            unitQty: item.qty,
+            issueQty: item.qty,
+            unit,
+            subUnitQty: 0,
+            subUnit: material?.purchaseUnit || material?.salesUnit || unit,
+            availableQty: batch ? Number(batch.qty) || 0 : activeBatches.reduce((sum, row) => sum + (Number(row.qty) || 0), 0),
+            warehouse: batch?.warehouse || material?.warehouse || "Raw Material Store",
+            price: item.price ?? materialUnitPrice(material) ?? 0,
+            requestedQty: item.qty,
+          };
+        }),
+      };
+    }
     if (convertFrom?.entityKey === "purchase-order" && entityKey === "goods-receipt") {
       const source = convertFrom.record;
       return {
@@ -953,6 +1237,19 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
         supplier: source.supplier,
         warehouse: source.warehouse,
         items: remainingGoodsReceiptItemsForPurchaseOrder(source),
+      };
+    }
+    if (convertFrom?.entityKey === "goods-receipt" && entityKey === "purchase-issue") {
+      const source = convertFrom.record;
+      return {
+        ...base,
+        refGRN: source.id,
+        refPO: source.refPO,
+        supplier: source.supplier,
+        warehouse: source.warehouse,
+        issueType: "Production",
+        requestedBy: authUserName,
+        items: availablePurchaseIssueItemsForGoodsReceipt(source),
       };
     }
     return base;
@@ -964,8 +1261,10 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
   const [reasonAction, setReasonAction] = useState(null);
   const [rejectionReason, setRejectionReason] = useState("");
   const [rejectionReasonError, setRejectionReasonError] = useState("");
-  const itemRows = filterItemRows(masterData.getRows("product-item"));
+  const itemRows = filterItemRows(masterData.getRows("product-item"), ["purchase-request", "purchase-issue"].includes(entityKey) ? values.department : "");
   const selectedWarehouse = masterData.getRows("warehouse").find((warehouse) => warehouse.name === values.warehouse);
+  const canEditRecord = !editLockedStatuses.includes(values.status);
+  const isReadOnlyMode = isView || (mode === "edit" && !canEditRecord);
   const visibleTabs = entity.form.tabs
     .filter((tab) => tab.key !== "approval")
     .map((tab) => ({ ...tab, fields: tab.fields.filter((field) => isFieldVisible(field, values)) }))
@@ -975,7 +1274,6 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
     if (action.hideWhen && action.hideWhen(values)) return false;
     return true;
   });
-  const canEditRecord = !editLockedStatuses.includes(values.status);
   const actionBarActions =
     mode === "edit"
       ? [{ key: "update", label: "Update", kind: "primary", validate: true }, ...visibleFormActions.filter((action) => !["cancel", "saveDraft"].includes(action.key))]
@@ -983,6 +1281,88 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
 
   function getItem(code) {
     return itemRows.find((m) => m.code === code) || getAnyItem(code);
+  }
+
+  function activeBatchesForItem(code) {
+    return (stockData.batches || []).filter((batch) => batch.code === code && batch.status !== "Consumed" && (Number(batch.qty) || 0) > 0);
+  }
+
+  function availableQtyForIssueItem(item) {
+    if (!item.code) return Number(item.availableQty) || 0;
+    const selectedBatch = activeBatchesForItem(item.code).find((batch) => batch.id === item.batch);
+    if (selectedBatch) return Number(selectedBatch.qty) || 0;
+    const totalBatchQty = activeBatchesForItem(item.code).reduce((sum, batch) => sum + (Number(batch.qty) || 0), 0);
+    return totalBatchQty || stockData.getTotalStock(item.code) || Number(item.availableQty) || 0;
+  }
+
+  function normalizePurchaseIssueItems(items) {
+    return (Array.isArray(items) ? items : []).map((item) => {
+      const material = getItem(item.code);
+      const selectedBatch = activeBatchesForItem(item.code).find((batch) => batch.id === item.batch);
+      const unit = item.unit || material?.unit || material?.baseUnit || "";
+      const unitQty = item.qty ?? item.unitQty ?? item.issueQty ?? 0;
+      return {
+        ...item,
+        name: item.name || material?.name || "",
+        qty: item.qty ?? unitQty,
+        unit,
+        subUnit: item.subUnit || material?.purchaseUnit || material?.salesUnit || unit,
+        expiry: item.expiry || selectedBatch?.expiryDate || "0",
+        availableQty: availableQtyForIssueItem(item),
+        warehouse: item.warehouse || selectedBatch?.warehouse || material?.warehouse || "Raw Material Store",
+        price: item.price ?? materialUnitPrice(material) ?? 0,
+        unitQty,
+        issueQty: item.issueQty ?? unitQty,
+        subUnitQty: item.subUnitQty ?? 0,
+      };
+    });
+  }
+
+  function purchaseIssueItemsFromRequisition(requestId) {
+    const request = purchaseData.getRecord("purchase-request", requestId);
+    if (!request) return [];
+
+    return normalizePurchaseIssueItems(
+      (request.items || []).map((item) => ({
+        code: item.code,
+        name: item.name,
+        qty: item.qty,
+        unit: item.unit,
+        unitQty: item.qty,
+        issueQty: item.qty,
+        subUnitQty: 0,
+        subUnit: item.unit,
+        expiry: "0",
+        batch: "",
+        availableQty: 0,
+        requestedQty: item.qty,
+        price: item.price,
+      }))
+    );
+  }
+
+  function issuedQtyForPurchaseRequestItem(requestId, code, issueRows) {
+    return issueRows
+      .filter((issue) => issue.requisitionNo === requestId)
+      .reduce((sum, issue) => {
+        return (
+          sum +
+          (issue.items || [])
+            .filter((issueItem) => issueItem.code === code)
+            .reduce((itemSum, issueItem) => itemSum + (Number(issueItem.issueQty ?? issueItem.qty ?? issueItem.unitQty) || 0), 0)
+        );
+      }, 0);
+  }
+
+  function purchaseRequestIssueStatus(request, issueRows) {
+    const requestedItems = (request.items || []).filter((item) => item.code && (Number(item.qty) || 0) > 0);
+    if (requestedItems.length === 0) return "";
+
+    const issuedItems = requestedItems.filter((item) => issuedQtyForPurchaseRequestItem(request.id, item.code, issueRows) > 0);
+    if (issuedItems.length === 0) return "";
+
+    const fullyIssued = requestedItems.every((item) => issuedQtyForPurchaseRequestItem(request.id, item.code, issueRows) >= (Number(item.qty) || 0));
+    return fullyIssued ? "Full Issue" : "Partial Issue";
   }
 
   function purchaseOrderCoverageRows({ includeRecord = null, excludeId = "" } = {}) {
@@ -1176,8 +1556,81 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
       .filter(Boolean);
   }
 
+  function completedPurchaseIssueRows({ includeRecord = null } = {}) {
+    const rows = purchaseData
+      .getRows("purchase-issue")
+      .filter((row) => row.id !== includeRecord?.id);
+    const mergedRows = includeRecord ? [includeRecord, ...rows] : rows;
+    return mergedRows.filter((row) => ["Issued", "Issue Complete"].includes(row.status) && row.stockUpdated !== false);
+  }
+
+  function issuedQtyForGoodsReceiptItem(grnId, item, issueRows) {
+    return issueRows
+      .filter((issue) => issue.refGRN === grnId)
+      .reduce((sum, issue) => {
+        return (
+          sum +
+          (issue.items || [])
+            .filter((issueItem) => issueItem.code === item.code && String(issueItem.batch || "") === String(item.batch || ""))
+            .reduce((itemSum, issueItem) => itemSum + (Number(issueItem.issueQty) || 0), 0)
+        );
+      }, 0);
+  }
+
+  function purchaseIssueItemFromGoodsReceiptItem(item, availableQty) {
+    const qty = Number(availableQty) || 0;
+    const price = Number(item.rate ?? item.price) || 0;
+    return {
+      code: item.code,
+      name: item.name,
+      receivedQty: Number(item.unitQty ?? item.acceptedQty ?? item.receivedQty) || 0,
+      availableQty: qty,
+      issueQty: qty,
+      unit: item.unit,
+      batch: item.batch || "",
+      price,
+      remarks: "",
+    };
+  }
+
+  function availablePurchaseIssueItemsForGoodsReceipt(grn) {
+    if (!grn || !countsAgainstPurchaseOrderReceipt(grn)) return [];
+    const issueRows = completedPurchaseIssueRows();
+    return (grn.items || [])
+      .map((item) => {
+        const receivedQty = Number(item.unitQty ?? item.acceptedQty ?? item.receivedQty) || 0;
+        const issuedQty = issuedQtyForGoodsReceiptItem(grn.id, item, issueRows);
+        const availableQty = Math.max(0, receivedQty - issuedQty);
+        return availableQty > 0 ? purchaseIssueItemFromGoodsReceiptItem(item, availableQty) : null;
+      })
+      .filter(Boolean);
+  }
+
   function resolvedFieldOptions(field) {
     const options = resolveFieldOptions(field, masterData.getRows, purchaseData.getRows, values[field.key]);
+    if (entityKey === "goods-receipt" && field.key === "refPO") {
+      return options.filter((poId) => {
+        if (poId === values.refPO) return true;
+        const po = purchaseData.getRecord("purchase-order", poId);
+        return po && remainingGoodsReceiptItemsForPurchaseOrder(po).length > 0;
+      });
+    }
+    if (entityKey === "purchase-issue" && field.key === "refGRN") {
+      return options.filter((grnId) => {
+        if (grnId === values.refGRN) return true;
+        const grn = purchaseData.getRecord("goods-receipt", grnId);
+        return grn && availablePurchaseIssueItemsForGoodsReceipt(grn).length > 0;
+      });
+    }
+    if (entityKey === "purchase-issue" && field.key === "requisitionNo") {
+      return options.filter((requestId) => {
+        if (requestId === values.requisitionNo) return true;
+        const request = purchaseData.getRecord("purchase-request", requestId);
+        const hasCompletedIssue = completedPurchaseIssueRows().some((issue) => issue.requisitionNo === requestId);
+        return request && !hasCompletedIssue && (!values.department || request.department === values.department) && (request.items || []).length > 0;
+      });
+    }
+
     if (entityKey !== "purchase-order" || field.key !== "refPR") return options;
 
     const selectedRequestIds = new Set(optionValues(values.refPR));
@@ -1196,6 +1649,33 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
   function handleFieldChange(field, next) {
     if (entityKey === "purchase-request" && field.key === "department") {
       setValues((prev) => ({ ...prev, department: next, items: prev.department === next ? prev.items : [] }));
+      return;
+    }
+
+    if (entityKey === "purchase-issue" && field.key === "department") {
+      setValues((prev) => ({
+        ...prev,
+        department: next,
+        requisitionNo: prev.department === next ? prev.requisitionNo : "",
+        items: prev.department === next ? prev.items : [],
+      }));
+      return;
+    }
+
+    if (entityKey === "purchase-issue" && field.key === "requisitionNo") {
+      const request = purchaseData.getRecord("purchase-request", next);
+      setValues((prev) => ({
+        ...prev,
+        requisitionNo: next,
+        department: request?.department || prev.department,
+        status: prev.status || "Issue Incomplete",
+        items: purchaseIssueItemsFromRequisition(next),
+      }));
+      return;
+    }
+
+    if (entityKey === "purchase-issue" && field.key === "items") {
+      setField(field.key, normalizePurchaseIssueItems(next));
       return;
     }
 
@@ -1239,6 +1719,22 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
       }
     }
 
+    if (entityKey === "purchase-issue" && field.key === "refGRN") {
+      const grn = purchaseData.getRecord("goods-receipt", next);
+      if (grn) {
+        setValues((prev) => ({
+          ...prev,
+          refGRN: next,
+          refPO: grn.refPO,
+          supplier: grn.supplier,
+          warehouse: grn.warehouse,
+          items: availablePurchaseIssueItemsForGoodsReceipt(grn),
+        }));
+      } else {
+        setValues((prev) => ({ ...prev, refGRN: next, refPO: "", supplier: "", warehouse: "", items: [] }));
+      }
+    }
+
     if (entityKey === "purchase-return" && field.key === "refGRN") {
       const grn = purchaseData.getRecord("goods-receipt", next);
       if (grn) {
@@ -1277,12 +1773,22 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
           if (field.minRows && lineItems.length < field.minRows) {
             nextErrors[field.key] = `At least ${field.minRows} item${field.minRows === 1 ? "" : "s"} required.`;
           }
-          if (field.requirePositiveQuantityKey && !lineItems.some((item) => (Number(item[field.requirePositiveQuantityKey]) || 0) > 0)) {
-            nextErrors[field.key] = "At least one item must have a receive quantity.";
+          const requiredColumns = (field.columns || []).filter((column) => column.required && !String(column.type || "").startsWith("computed-"));
+          const missingRequiredColumn = lineItems
+            .map((item, index) => {
+              const missingColumn = requiredColumns.find((column) => isBlank(item[column.key]));
+              return missingColumn ? `Row ${index + 1}: ${missingColumn.label}` : "";
+            })
+            .find(Boolean);
+          if (missingRequiredColumn) {
+            nextErrors[field.key] = `${missingRequiredColumn} is required.`;
+          }
+          if (!nextErrors[field.key] && field.requirePositiveQuantityKey && !lineItems.some((item) => (Number(item[field.requirePositiveQuantityKey]) || 0) > 0)) {
+            nextErrors[field.key] = field.requirePositiveQuantityMessage || "At least one item must have a receive quantity.";
           }
           const selectedCodes = lineItems.map((item) => item.code).filter(Boolean);
           const hasDuplicateCode = selectedCodes.some((code, index) => selectedCodes.indexOf(code) !== index);
-          if (hasDuplicateCode) nextErrors[field.key] = "Same item cannot be added more than once.";
+          if (!nextErrors[field.key] && !field.allowDuplicateCodes && hasDuplicateCode) nextErrors[field.key] = "Same item cannot be added more than once.";
         }
       });
     });
@@ -1296,11 +1802,55 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
   }
 
   function applyStockUpdate(direction) {
+    if (entityKey === "goods-receipt" && direction === "increase") {
+      stockData.postStockIn(
+        values.items.map((item) => ({
+          code: item.code,
+          name: item.name,
+          batch: item.batch,
+          expiry: item.expiry,
+          qty: Number(item.unitQty ?? item.acceptedQty ?? item.receivedQty) || 0,
+          unit: item.unit,
+          unitCost: Number(item.rate ?? item.price) || 0,
+        })),
+        {
+          warehouse: values.warehouse,
+          reference: values.id,
+          supplier: values.supplier,
+          user: authUserName,
+          date: values.date,
+        }
+      );
+      return;
+    }
+
+    if (entityKey === "purchase-issue" && direction === "decrease") {
+      const issueWarehouse = values.warehouse || values.items.find((item) => item.warehouse)?.warehouse || "Raw Material Store";
+      stockData.postStockOut(
+        values.items.map((item) => ({
+          code: item.code,
+          name: item.name,
+          batch: item.batch,
+          qty: Number(item.qty ?? item.unitQty ?? item.issueQty) || 0,
+          unit: item.unit,
+          unitCost: Number(item.price) || 0,
+        })),
+        {
+          warehouse: issueWarehouse,
+          reference: values.id,
+          supplier: values.supplier,
+          user: authUserName,
+          date: values.date,
+        }
+      );
+      return;
+    }
+
     values.items.forEach((item) => {
       const masterItemRows = masterData.getRows("product-item");
       const current = masterItemRows.find((r) => r.code === item.code);
       if (!current) return;
-      const qty = direction === "increase" ? Number(item.unitQty ?? item.acceptedQty ?? item.receivedQty) || 0 : Number(item.returnQty) || 0;
+      const qty = direction === "increase" ? Number(item.unitQty ?? item.acceptedQty ?? item.receivedQty) || 0 : Number(item.returnQty ?? item.issueQty) || 0;
       const delta = direction === "increase" ? qty : -qty;
       masterData.updateRow("product-item", item.code, { stock: Math.max(0, (Number(current.stock) || 0) + delta) });
     });
@@ -1345,6 +1895,12 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
         receivedDate: today(),
       };
     }
+    if (["Issued", "Issue Complete"].includes(status)) {
+      return {
+        issuedBy: authUserName,
+        issuedDate: today(),
+      };
+    }
     return {};
   }
 
@@ -1384,12 +1940,29 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
     );
   }
 
+  async function updateLinkedPurchaseRequestIssueStatus(record) {
+    if (entityKey !== "purchase-issue" || !["Issued", "Issue Complete"].includes(record.status) || !record.stockUpdated || !record.requisitionNo) return;
+
+    const request = purchaseData.getRecord("purchase-request", record.requisitionNo);
+    if (!request || !["Approved", "Partial Issue", "Full Issue"].includes(request.status)) return;
+
+    const nextStatus = purchaseRequestIssueStatus(request, completedPurchaseIssueRows({ includeRecord: record }));
+    if (!nextStatus || request.status === nextStatus) return;
+
+    await purchaseData.updateRow("purchase-request", request.id, {
+      status: nextStatus,
+      receivedBy: "",
+      receivedDate: "",
+      activity: [...(request.activity || []), { event: nextStatus, date: today(), time: currentTime(), by: authUserName, reference: record.id }],
+    });
+  }
+
   function completedGoodsReceiptRows({ includeRecord = null } = {}) {
     const rows = purchaseData
       .getRows("goods-receipt")
       .filter((row) => row.id !== includeRecord?.id);
     const mergedRows = includeRecord ? [includeRecord, ...rows] : rows;
-    return mergedRows.filter((row) => row.status === "Completed");
+    return mergedRows.filter(countsAgainstPurchaseOrderReceipt);
   }
 
   function receivedQtyForPurchaseOrderItem(poId, itemCode, receiptRows) {
@@ -1419,22 +1992,25 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
     if (!hasAnyReceived) return;
 
     const isFullyReceived = orderedItems.every((item) => receivedQtyForPurchaseOrderItem(po.id, item.code, receiptRows) >= (Number(item.qty) || 0));
-    const nextStatus = isFullyReceived ? "Received" : "Partially Received";
+    const nextStatus = isFullyReceived ? "Completed GRN" : "Partially Received";
     if (po.status === nextStatus) return;
 
     await purchaseData.updateRow("purchase-order", po.id, {
       status: nextStatus,
-      ...(nextStatus === "Received" ? { receivedBy: authUserName, receivedDate: today() } : { receivedBy: "", receivedDate: "" }),
+      ...(nextStatus === "Completed GRN" ? { receivedBy: authUserName, receivedDate: today() } : { receivedBy: "", receivedDate: "" }),
       activity: [...(po.activity || []), { event: nextStatus, date: today(), time: currentTime(), by: authUserName }],
     });
   }
 
   async function executeAction(action, options = {}) {
     const status = action.status || values.status;
-    const recordValues = purchaseOrderWithSourceAllocations(values);
+    const recordValues =
+      entityKey === "purchase-issue"
+        ? { ...values, items: normalizePurchaseIssueItems(values.items) }
+        : purchaseOrderWithSourceAllocations(values);
     const activity = [...(recordValues.activity || [])];
     const hasCreatedActivity = activity.some((entry) => ["Created", "Draft"].includes(entry.event));
-    const actionEvent = action.status === "Draft" ? "Created" : action.status || "Updated";
+    const actionEvent = action.activityEvent || (action.status === "Draft" ? "Created" : action.status || "Updated");
     if (mode === "create" && !hasCreatedActivity) {
       activity.push({ event: "Created", date: today(), time: currentTime(), by: authUserName });
     }
@@ -1446,19 +2022,22 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
       ...recordValues,
       ...(entityKey === "purchase-request" && mode === "create" ? { requestedBy: authUserName } : {}),
       ...(entityKey === "purchase-order" && mode === "create" ? { preparedBy: recordValues.preparedBy || authUserName } : {}),
+      ...(entityKey === "purchase-issue" && mode === "create" ? { requestedBy: recordValues.requestedBy || authUserName } : {}),
       status,
       ...approvalPatch(action, options.reason),
       ...statusPatch(status),
+      ...(action.updatesStock ? { stockUpdated: true } : {}),
       activity,
     };
 
     try {
-      if (action.updatesStock) applyStockUpdate(action.updatesStock);
+      if (action.updatesStock && !values.stockUpdated) applyStockUpdate(action.updatesStock);
 
       if (mode === "edit") await purchaseData.updateRow(entityKey, recordId, record);
       else await purchaseData.addRow(entityKey, record);
 
       await updateLinkedPurchaseRequestCoverage(record);
+      await updateLinkedPurchaseRequestIssueStatus(record);
       await updateLinkedPurchaseOrderReceiptStatus(record);
 
       showToast(action.status ? `${values.id} updated to "${action.status}".` : mode === "edit" ? `${values.id} updated.` : `${entity.singular} saved.`);
@@ -1529,7 +2108,9 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
   };
 
   return (
-    <div className={isView ? "purchase-detail-print-area" : ""}>
+    <div className={isView ? `purchase-detail-print-area ${entityKey === "goods-receipt" ? "goods-receipt-print-area" : ""}` : ""}>
+      {isView && entityKey === "goods-receipt" && <PrintGoodsReceipt values={values} company={company} companyName={companyName} companyContact={companyContact} />}
+
       <p className="mb-2 flex items-center gap-1 text-xs text-[var(--muted)] print:hidden">
         <Link to="/purchase-management" className="hover:text-[var(--primary)]">
           Purchase Management
@@ -1550,7 +2131,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
         </h2>
       </div>
 
-      {isView && (
+      {isView && entityKey !== "goods-receipt" && (
         <div className="hidden border-b border-[var(--line)] pb-4 print:block">
           <div className="workflow-print-banner rounded-md border border-[var(--line)] bg-slate-50 px-5 py-4 text-center">
             <h1 className="text-xl font-bold text-[var(--ink)]">{companyName}</h1>
@@ -1568,7 +2149,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
       )}
 
       {isView && (
-        <div className="purchase-workflow-print-area mt-3 space-y-3 rounded-md border border-[var(--line)] bg-white p-4">
+        <div className={`purchase-workflow-print-area mt-3 space-y-3 rounded-md border border-[var(--line)] bg-white p-4 ${entityKey === "goods-receipt" ? "print:hidden" : ""}`}>
           <DocumentChain links={documentLinks(entityKey, values)} />
           <WorkflowTimeline steps={getWorkflowSteps(entityKey, values.status)} activity={values.activity} record={values} />
         </div>
@@ -1581,15 +2162,15 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
         </div>
       )}
 
-      <div className="mt-4 rounded-md border border-[var(--line)] bg-white">
+      <div className={`mt-4 rounded-md border border-[var(--line)] bg-white ${isView && entityKey === "goods-receipt" ? "print:hidden" : ""}`}>
         <div className="divide-y divide-[var(--line)]">
           {visibleTabs.map((tab) => (
             <section key={tab.key} className={tab.compact ? "p-3 sm:p-4" : "p-4 sm:p-5"}>
               <div className={`${tab.compact ? "mb-2" : "mb-4"} flex flex-wrap items-center gap-3`}>
                 <h3 className="text-sm font-semibold uppercase text-[var(--muted)]">{tab.label}</h3>
-                {!isView &&
+                {!isReadOnlyMode &&
                   tab.fields
-                    .filter((field) => field.type === "lineItems" && field.allowAddRemove)
+                    .filter((field) => field.type === "lineItems" && field.allowAddRemove && !field.hideSectionAddButton)
                     .map((field) => (
                       <button
                         key={`${field.key}-add`}
@@ -1611,8 +2192,9 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
                       }}
                       value={values[field.key]}
                       error={errors[field.key]}
-                      disabled={isView}
+                      disabled={isReadOnlyMode}
                       materialRows={itemRows}
+                      stockBatches={stockData.batches}
                       onChange={(next) => handleFieldChange(field, next)}
                     />
                     {entityKey === "purchase-order" && tab.key === "delivery" && field.key === "warehouse" && selectedWarehouse && <WarehouseAddressSummary warehouse={selectedWarehouse} />}
@@ -1625,7 +2207,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
       </div>
 
       <div className="sticky bottom-0 mt-5 flex flex-wrap items-center justify-end gap-2 rounded-md border border-[var(--line)] bg-white/95 p-3 shadow-[0_-4px_12px_rgba(15,23,42,0.06)] backdrop-blur print:hidden">
-        {isView ? (
+        {isView || (mode === "edit" && !canEditRecord) ? (
           <>
             <button type="button" onClick={handleCancel} className="rounded-md border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-slate-50">
               Close
@@ -1633,7 +2215,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
             <button type="button" onClick={printWorkflowSection} className="rounded-md border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-slate-50">
               Print
             </button>
-            {canEditRecord && (
+            {isView && canEditRecord && (
               <Link
                 to={`/purchase-management/${entityKey}/${recordId}/edit`}
                 className="rounded-md bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-white hover:bg-[var(--primary-deep)]"
