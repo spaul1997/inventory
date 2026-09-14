@@ -313,6 +313,7 @@ export { materialByCode };
 const PR_STATUSES = ["Draft", "Pending Approval", "Approved", "Partial Issue", "Full Issue", "Rejected", "Received", "Cancelled"];
 const PO_STATUSES = ["Draft", "Pending Approval", "Approved", "Rejected", "Ordered", "Partially Received", "Completed GRN", "Received", "Cancelled", "Returned"];
 const GRN_STATUSES = ["Draft", "Pending Inspection", "Accepted", "Partially Accepted", "Rejected", "Completed"];
+const GRN_INSPECTION_COMPLETE_STATUSES = ["Passed", "Failed", "Partially Passed"];
 const ISSUE_STATUSES = ["Issue Incomplete", "Issue Complete", "Cancelled"];
 const ISSUE_TYPES = ["Production", "Department", "Project", "Other"];
 const RETURN_STATUSES = ["Draft", "Pending Approval", "Approved", "Rejected", "Returned", "Cancelled"];
@@ -375,7 +376,7 @@ export const purchaseEntities = {
           label: "Basic Information",
           fields: [
             { key: "date", label: "Request Date", type: "date", required: true, span: "quarter" },
-            { key: "department", label: "Department", type: "select", optionsFrom: "department", searchable: true, span: "quarter" },
+            { key: "department", label: "Department", type: "select", required: true, optionsFrom: "department", searchable: true, span: "quarter" },
             { key: "requiredDate", label: "Required Date", type: "date", span: "quarter" },
             { key: "priority", label: "Priority", type: "select", options: PRIORITIES, span: "quarter" },
           ],
@@ -440,9 +441,9 @@ export const purchaseEntities = {
       searchKeys: ["id", "supplier"],
       dateKey: "date",
       filters: [
-        { key: "supplier", label: "Supplier", options: suppliers },
+        { key: "supplier", label: "Supplier", optionsFrom: "supplier" },
         { key: "status", label: "Status", options: PO_STATUSES },
-        { key: "warehouse", label: "Warehouse", options: warehouses },
+        { key: "warehouse", label: "Warehouse", optionsFrom: "warehouse" },
       ],
       summary: [
         { label: "Total POs", tone: "primary", compute: (rows) => rows.length },
@@ -653,10 +654,10 @@ export const purchaseEntities = {
           compact: true,
           fields: [
             { key: "inspectionRequired", label: "Inspection Required", type: "toggle", labelOutside: true, span: "quarter" },
-            { key: "qualityStatus", label: "Quality Status", type: "select", options: ["Pending", "Passed", "Failed", "Partially Passed"], span: "quarter" },
-            { key: "inspectedBy", label: "Inspector", type: "text", span: "quarter" },
-            { key: "inspectionDate", label: "Inspection Date", type: "date", span: "quarter" },
-            { key: "inspectionRemarks", label: "Inspection Remarks", type: "textarea", rows: 2, span: "full" },
+            { key: "qualityStatus", label: "Quality Status", type: "select", options: ["Pending", "Passed", "Failed", "Partially Passed"], span: "quarter", disabledWhen: (row) => !row.inspectionRequired },
+            { key: "inspectedBy", label: "Inspector", type: "text", span: "quarter", disabledWhen: (row) => !row.inspectionRequired },
+            { key: "inspectionDate", label: "Inspection Date", type: "date", span: "quarter", disabledWhen: (row) => !row.inspectionRequired },
+            { key: "inspectionRemarks", label: "Inspection Remarks", type: "textarea", rows: 2, span: "full", disabledWhen: (row) => !row.inspectionRequired },
           ],
         },
         {
@@ -673,7 +674,7 @@ export const purchaseEntities = {
     formActions: [
       { key: "saveDraft", label: "Save Draft", kind: "outline", status: "Draft", validate: true, showWhen: (row) => row.status === "Draft" && !row.stockUpdated },
       { key: "submit", label: "Submit for Inspection", kind: "outline", status: "Pending Inspection", validate: true, showWhen: (row) => row.inspectionRequired && row.status === "Draft" && !row.stockUpdated, activityEvent: "Submitted for Inspection" },
-      { key: "stockUpdate", label: "Save & Stock Update", kind: "primary", status: "Completed", validate: true, updatesStock: "increase", showWhen: (row) => !row.stockUpdated, activityEvent: "Stock Updated", confirm: "Save this GRN and update stock?" },
+      { key: "stockUpdate", label: "Save & Stock Update", kind: "primary", status: "Completed", validate: true, updatesStock: "increase", showWhen: (row) => !row.stockUpdated && (!row.inspectionRequired || GRN_INSPECTION_COMPLETE_STATUSES.includes(row.qualityStatus)), activityEvent: "Stock Updated", confirm: "Save this GRN and update stock?" },
       { key: "print", label: "Print GRN", kind: "outline", print: true },
     ],
   },

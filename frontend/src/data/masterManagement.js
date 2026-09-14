@@ -44,7 +44,6 @@ export const masterEntities = {
         warehouse: values.defaultWarehouse,
       }),
       filters: [
-        { key: "department", label: "Department", optionsFrom: "department" },
         { key: "category", label: "Category", optionsFrom: "category", optionsFilter: isNonSupplierRootCategory },
         { key: "productType", label: "Product Type", options: productType },
         { key: "status", label: "Status", options: ["Active", "Inactive", "Low Stock"] },
@@ -59,7 +58,6 @@ export const masterEntities = {
       columns: [
         { key: "code", label: "Item Code", mono: true },
         { key: "name", label: "Item Name" },
-        { key: "department", label: "Department" },
         { key: "category", label: "Category" },
         { key: "unit", label: "Unit" },
         { key: "stock", label: "Stock", align: "right" },
@@ -112,7 +110,6 @@ export const masterEntities = {
               optionsFilter: isNonSupplierSubCategory,
             },
             { key: "productType", label: "Product Type", type: "select", required: true, options: productType },
-            { key: "department", label: "Department", type: "select", searchable: true, optionsFrom: "department" },
             { key: "baseUnit", label: "Base Unit", type: "select", required: true, searchable: true, optionsFrom: "unit" },
             { key: "manufactured", label: "Manufactured?", type: "toggle" },
             { key: "brand", label: "Brand", type: "text" },

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { AlertCircle, Check, ChevronDown, ChevronRight as Crumb, Paperclip, Plus, Trash2, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, Check, ChevronDown, ChevronRight as Crumb, Paperclip, Plus, Trash2, X } from "lucide-react";
 import { masterEntities } from "../../data/masterManagement.js";
 import { purchaseEntities, materialByCode, lineTotal, poTotals } from "../../data/purchaseManagement.js";
 import { ConfirmDialog } from "../ui.jsx";
@@ -124,11 +124,42 @@ function materialUnitPrice(material) {
   return material?.purchasePrice ?? material?.lastPurchasePrice ?? material?.standardCost ?? material?.price ?? material?.sellingPrice ?? "";
 }
 
-function filterItemRows(productRows, department) {
+function normalizeFilterValue(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function rowDepartmentValues(row) {
+  const department = row?.department;
+  const values = [department, row?.departmentName, row?.departmentCode];
+
+  if (department && typeof department === "object") {
+    values.push(department.name, department.code, department.label, department.value);
+  }
+
+  return values.map(normalizeFilterValue).filter(Boolean);
+}
+
+function departmentOptionValues(departments, department) {
+  const selected = normalizeFilterValue(department);
+  if (!selected) return new Set();
+
+  const values = new Set([selected]);
+  const matchedDepartment = departments.find((row) =>
+    [row.name, row.code].some((value) => normalizeFilterValue(value) === selected)
+  );
+
+  if (matchedDepartment?.name) values.add(normalizeFilterValue(matchedDepartment.name));
+  if (matchedDepartment?.code) values.add(normalizeFilterValue(matchedDepartment.code));
+  return values;
+}
+
+function filterItemRows(productRows, department = "", departments = []) {
+  const departmentValues = departmentOptionValues(departments, department);
   const rowsByCode = new Map();
   productRows.forEach((row) => {
     if (!row.code || rowsByCode.has(row.code)) return;
-    if (department && row.department !== department) return;
+    const itemDepartmentValues = rowDepartmentValues(row);
+    if (departmentValues.size > 0 && itemDepartmentValues.length > 0 && !itemDepartmentValues.some((value) => departmentValues.has(value))) return;
     rowsByCode.set(row.code, {
       ...row,
       unit: row.unit || row.baseUnit || "",
@@ -144,9 +175,13 @@ function materialOptionLabel(material) {
 }
 
 function grnNetAmount(row) {
-  const qty = Number(row.unitQty ?? row.acceptedQty ?? row.receivedQty) || 0;
+  const qty = grnReceivedQty(row);
   const rate = Number(row.rate ?? row.price) || 0;
   return qty * rate;
+}
+
+function grnReceivedQty(row) {
+  return Number(row.receivedQty ?? row.unitQty ?? row.acceptedQty) || 0;
 }
 
 function grnLineAmount(row) {
@@ -1001,6 +1036,11 @@ function countsAgainstPurchaseOrderReceipt(row) {
   return row.status === "Completed" && row.stockUpdated !== false;
 }
 
+function reservesPurchaseOrderReceiptQty(row) {
+  if (row.status === "Pending Inspection") return true;
+  return countsAgainstPurchaseOrderReceipt(row);
+}
+
 function PrintInfoItem({ label, value, fallback }) {
   return (
     <div className="grn-print-info-item">
@@ -1159,6 +1199,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
   const company = session?.user?.company || {};
   const companyName = company.businessName || "IMS Control Center";
   const companyContact = [company.email, company.phone].filter(Boolean).join(" | ");
+  const departmentRows = masterData.getRows("department");
 
   const existingRecord = recordId ? purchaseData.getRecord(entityKey, recordId) : null;
   const convertFrom = !recordId ? location.state?.convertFrom : null;
@@ -1261,7 +1302,10 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
   const [reasonAction, setReasonAction] = useState(null);
   const [rejectionReason, setRejectionReason] = useState("");
   const [rejectionReasonError, setRejectionReasonError] = useState("");
-  const itemRows = filterItemRows(masterData.getRows("product-item"), ["purchase-request", "purchase-issue"].includes(entityKey) ? values.department : "");
+  const shouldScopeItemsByDepartment = ["purchase-request", "purchase-issue"].includes(entityKey);
+  const itemRows = shouldScopeItemsByDepartment
+    ? (values.department ? filterItemRows(masterData.getRows("product-item"), values.department, departmentRows) : [])
+    : filterItemRows(masterData.getRows("product-item"));
   const selectedWarehouse = masterData.getRows("warehouse").find((warehouse) => warehouse.name === values.warehouse);
   const canEditRecord = !editLockedStatuses.includes(values.status);
   const isReadOnlyMode = isView || (mode === "edit" && !canEditRecord);
@@ -1545,7 +1589,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
   }
 
   function remainingGoodsReceiptItemsForPurchaseOrder(po) {
-    const receiptRows = completedGoodsReceiptRows();
+    const receiptRows = reservedGoodsReceiptRows();
     return (po.items || [])
       .map((item) => {
         const orderedQty = Number(item.qty) || 0;
@@ -1554,6 +1598,15 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
         return remainingQty > 0 ? goodsReceiptItemFromPurchaseOrderItem(item, remainingQty) : null;
       })
       .filter(Boolean);
+  }
+
+  function reservedGoodsReceiptRows({ includeRecord = null, excludeId = "", excludeIds = [] } = {}) {
+    const omittedIds = new Set([excludeId, ...excludeIds, includeRecord?.id].map(normalizeFilterValue).filter(Boolean));
+    const rows = purchaseData
+      .getRows("goods-receipt")
+      .filter((row) => !omittedIds.has(normalizeFilterValue(row.id)));
+    const mergedRows = includeRecord ? [includeRecord, ...rows] : rows;
+    return mergedRows.filter(reservesPurchaseOrderReceiptQty);
   }
 
   function completedPurchaseIssueRows({ includeRecord = null } = {}) {
@@ -1583,7 +1636,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
     return {
       code: item.code,
       name: item.name,
-      receivedQty: Number(item.unitQty ?? item.acceptedQty ?? item.receivedQty) || 0,
+      receivedQty: grnReceivedQty(item),
       availableQty: qty,
       issueQty: qty,
       unit: item.unit,
@@ -1598,7 +1651,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
     const issueRows = completedPurchaseIssueRows();
     return (grn.items || [])
       .map((item) => {
-        const receivedQty = Number(item.unitQty ?? item.acceptedQty ?? item.receivedQty) || 0;
+        const receivedQty = grnReceivedQty(item);
         const issuedQty = issuedQtyForGoodsReceiptItem(grn.id, item, issueRows);
         const availableQty = Math.max(0, receivedQty - issuedQty);
         return availableQty > 0 ? purchaseIssueItemFromGoodsReceiptItem(item, availableQty) : null;
@@ -1789,6 +1842,25 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
           const selectedCodes = lineItems.map((item) => item.code).filter(Boolean);
           const hasDuplicateCode = selectedCodes.some((code, index) => selectedCodes.indexOf(code) !== index);
           if (!nextErrors[field.key] && !field.allowDuplicateCodes && hasDuplicateCode) nextErrors[field.key] = "Same item cannot be added more than once.";
+
+          if (!nextErrors[field.key] && entityKey === "goods-receipt" && field.key === "items" && values.refPO) {
+            const purchaseOrder = purchaseData.getRecord("purchase-order", values.refPO);
+            const reservedRows = reservedGoodsReceiptRows({ excludeIds: [recordId, values.id, existingRecord?.id] });
+            const overReceivedItem = lineItems.find((item) => {
+              if (!item.code) return false;
+              const orderedQty = Number((purchaseOrder?.items || []).find((poItem) => poItem.code === item.code)?.qty) || 0;
+              const reservedQty = receivedQtyForPurchaseOrderItem(values.refPO, item.code, reservedRows);
+              const currentQty = grnReceivedQty(item);
+              return currentQty > Math.max(0, orderedQty - reservedQty);
+            });
+
+            if (overReceivedItem) {
+              const reservedQty = receivedQtyForPurchaseOrderItem(values.refPO, overReceivedItem.code, reservedRows);
+              const orderedQty = Number((purchaseOrder?.items || []).find((poItem) => poItem.code === overReceivedItem.code)?.qty) || 0;
+              const remainingQty = Math.max(0, orderedQty - reservedQty);
+              nextErrors[field.key] = `${overReceivedItem.name || overReceivedItem.code} has only ${remainingQty} remaining for this PO.`;
+            }
+          }
         }
       });
     });
@@ -1809,7 +1881,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
           name: item.name,
           batch: item.batch,
           expiry: item.expiry,
-          qty: Number(item.unitQty ?? item.acceptedQty ?? item.receivedQty) || 0,
+          qty: grnReceivedQty(item),
           unit: item.unit,
           unitCost: Number(item.rate ?? item.price) || 0,
         })),
@@ -1850,7 +1922,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
       const masterItemRows = masterData.getRows("product-item");
       const current = masterItemRows.find((r) => r.code === item.code);
       if (!current) return;
-      const qty = direction === "increase" ? Number(item.unitQty ?? item.acceptedQty ?? item.receivedQty) || 0 : Number(item.returnQty ?? item.issueQty) || 0;
+      const qty = direction === "increase" ? grnReceivedQty(item) : Number(item.returnQty ?? item.issueQty) || 0;
       const delta = direction === "increase" ? qty : -qty;
       masterData.updateRow("product-item", item.code, { stock: Math.max(0, (Number(current.stock) || 0) + delta) });
     });
@@ -1973,7 +2045,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
           sum +
           (receipt.items || [])
             .filter((item) => item.code === itemCode)
-            .reduce((itemSum, item) => itemSum + (Number(item.unitQty ?? item.receivedQty ?? item.acceptedQty) || 0), 0)
+            .reduce((itemSum, item) => itemSum + grnReceivedQty(item), 0)
         );
       }, 0);
   }
@@ -2106,6 +2178,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
     outline: "border border-[var(--line)] text-[var(--ink)] hover:bg-slate-50",
     primary: "bg-[var(--primary)] text-white hover:bg-[var(--primary-deep)]",
   };
+  const showBackButton = ["purchase-request", "purchase-order"].includes(entityKey) && mode === "create";
 
   return (
     <div className={isView ? `purchase-detail-print-area ${entityKey === "goods-receipt" ? "goods-receipt-print-area" : ""}` : ""}>
@@ -2129,6 +2202,16 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
         <h2 className="text-xl font-semibold text-[var(--ink)]">
           {isView ? values.id : mode === "edit" ? `Edit ${entity.label}` : `New ${entity.label}`}
         </h2>
+        {showBackButton && (
+          <button
+            type="button"
+            onClick={handleCancel}
+            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-slate-50"
+          >
+            <ArrowLeft size={15} />
+            Back
+          </button>
+        )}
       </div>
 
       {isView && entityKey !== "goods-receipt" && (
@@ -2192,7 +2275,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
                       }}
                       value={values[field.key]}
                       error={errors[field.key]}
-                      disabled={isReadOnlyMode}
+                      disabled={isReadOnlyMode || Boolean(field.disabledWhen?.(values))}
                       materialRows={itemRows}
                       stockBatches={stockData.batches}
                       onChange={(next) => handleFieldChange(field, next)}
