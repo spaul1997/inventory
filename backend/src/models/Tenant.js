@@ -1,5 +1,7 @@
 import mongoose from "mongoose";
 
+const companyModules = ["purchase", "sales", "manufacturing"];
+
 const tenantSchema = new mongoose.Schema(
   {
     businessName: {
@@ -35,6 +37,29 @@ const tenantSchema = new mongoose.Schema(
     gstNumber: {
       type: String,
       default: "",
+    },
+
+    maxUsers: {
+      type: Number,
+      required: true,
+      default: 10,
+      min: 1,
+      validate: {
+        validator: Number.isInteger,
+        message: "Maximum users must be a whole number.",
+      },
+    },
+
+    monthlyAmount: {
+      type: Number,
+      required: true,
+      default: 0,
+      min: 0,
+    },
+
+    enabledModules: {
+      type: [{ type: String, enum: companyModules }],
+      default: () => [...companyModules],
     },
 
     status: {

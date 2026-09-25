@@ -202,6 +202,7 @@ const productItemPatch = (body) => {
   numericProductFields.forEach((field) => {
     if (body[field] !== undefined) patch[field] = numberValue(body[field]);
   });
+  if (body.stock !== undefined) patch.currentStock = Math.max(0, numberValue(body.stock));
   booleanProductFields.forEach((field) => {
     if (body[field] !== undefined) patch[field] = booleanValue(body[field]);
   });

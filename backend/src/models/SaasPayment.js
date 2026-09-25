@@ -2,6 +2,14 @@ import mongoose from "mongoose";
 
 const saasPaymentSchema = new mongoose.Schema(
   {
+    invoiceNumber: {
+      type: String,
+      uppercase: true,
+      trim: true,
+      unique: true,
+      sparse: true,
+    },
+
     tenantId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Tenant",
@@ -18,7 +26,7 @@ const saasPaymentSchema = new mongoose.Schema(
     planId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Plan",
-      required: true,
+      default: null,
     },
 
     amount: {

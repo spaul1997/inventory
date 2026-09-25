@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "node --env-file=.env --watch index.js",
     "start": "node --env-file=.env index.js",
-    "check": "node --check index.js && node --check src/app.js && node --check src/database/connect.js && node --check src/routes/index.js"
+    "check": "node --check index.js && node --check src/app.js && node --check src/database/connect.js && node --check src/routes/index.js && node --check src/controllers/accessManagement.controller.js && node --check src/controllers/stockManagement.controller.js && node --check src/controllers/inventoryReports.controller.js && node --check src/models/StockManagementDocument.js && node --check src/models/StockManagementState.js"
   },
   "engines": {
     "node": ">=22 <23"

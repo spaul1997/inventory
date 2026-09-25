@@ -12,7 +12,7 @@ const subscriptionSchema = new mongoose.Schema(
     planId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Plan",
-      required: true,
+      default: null,
     },
 
     billingCycle: {
