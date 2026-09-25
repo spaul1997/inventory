@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, Route, Routes, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Bell, Boxes, Building2, CreditCard, LayoutDashboard, LogOut, Search, Settings as SettingsIcon, UserCog } from "lucide-react";
-import { menu } from "./data/menu.js";
+import { hasCompanyModule, hasPermission, menuForModules } from "./data/menu.js";
 import { MegaMenu } from "./components/MegaMenu.jsx";
 import { ToastProvider } from "./components/Toast.jsx";
 import { AuthProvider, useAuth } from "./stores/AuthStore.jsx";
@@ -19,7 +19,7 @@ import EditProfile from "./pages/EditProfile.jsx";
 import Settings from "./pages/Settings.jsx";
 import Billing from "./pages/Billing.jsx";
 import Placeholder from "./pages/Placeholder.jsx";
-import { MasterManagementHome, MasterManagementListPage, MasterManagementFormPage } from "./pages/MasterManagement.jsx";
+import { MasterAccessManagementPage, MasterManagementHome, MasterManagementListPage, MasterManagementFormPage } from "./pages/MasterManagement.jsx";
 import { PurchaseManagementDashboard, PurchaseManagementListPage, PurchaseManagementFormPage } from "./pages/PurchaseManagement.jsx";
 import {
   StockManagementDashboard,
@@ -44,6 +44,28 @@ const specialAdminTabs = [
 
 function isSpecialAdminSession(session) {
   return session?.user?.role === "special_admin";
+}
+
+const manufacturingReportSlugs = new Set([
+  "production-report",
+  "material-consumption-report",
+  "wip-report",
+  "finished-goods-report",
+]);
+const salesReportSlugs = new Set(["sales-report", "dispatch-report", "sales-return-report"]);
+
+function requiredModulesForPath(pathname) {
+  if (pathname === "/purchase-management" || pathname.startsWith("/purchase-management/")) return ["purchase"];
+  if (pathname === "/manufacturing" || pathname.startsWith("/manufacturing/")) return ["manufacturing"];
+  if (pathname === "/sales" || pathname.startsWith("/sales/")) return ["sales"];
+  if (pathname === "/inventory-reports/purchase-report") return ["purchase"];
+  if (pathname === "/manufacturing-sales-reports") return ["manufacturing", "sales"];
+  if (pathname.startsWith("/manufacturing-sales-reports/")) {
+    const reportSlug = pathname.split("/")[2];
+    if (manufacturingReportSlugs.has(reportSlug)) return ["manufacturing"];
+    if (salesReportSlugs.has(reportSlug)) return ["sales"];
+  }
+  return [];
 }
 
 function ProtectedRoute({ children }) {
@@ -74,6 +96,10 @@ function Topbar() {
   const notifRef = useRef(null);
   const searchRef = useRef(null);
   const isSpecialAdmin = isSpecialAdminSession(session);
+  const availableMenu = useMemo(
+    () => menuForModules(session?.user?.company?.enabledModules, session?.user?.permissions),
+    [session?.user?.company?.enabledModules, session?.user?.permissions]
+  );
 
   const displayName = session?.user?.name || "User";
   const displayCompany = session?.user?.company?.businessName;
@@ -229,7 +255,7 @@ function Topbar() {
       <nav className="border-t border-white/10">
         <div className="mx-auto max-w-[1400px] px-4 sm:px-6">
           {isSpecialAdmin ? (
-            <div className="flex flex-wrap items-center gap-1">
+            <div className="flex flex-wrap items-center justify-center gap-1">
               {specialAdminTabs.map(({ label, to, icon: Icon }) => (
                 <NavLink
                   key={label}
@@ -246,7 +272,7 @@ function Topbar() {
               ))}
             </div>
           ) : (
-            <MegaMenu sections={menu} />
+            <MegaMenu sections={availableMenu} />
           )}
         </div>
       </nav>
@@ -260,7 +286,7 @@ function BusinessDataProviders({ storageScope, children }) {
   return (
     <MasterDataProvider storageScope={storageScope} token={session?.token}>
       <PurchaseDataProvider storageScope={storageScope} token={session?.token}>
-        <StockDataProvider storageScope={storageScope}>
+        <StockDataProvider storageScope={storageScope} token={session?.token}>
           <ManufacturingDataProvider storageScope={storageScope}>
             <SalesDataProvider storageScope={storageScope}>
               <ReportConfigProvider storageScope={storageScope}>{children}</ReportConfigProvider>
@@ -274,8 +300,19 @@ function BusinessDataProviders({ storageScope, children }) {
 
 function Shell() {
   const { session } = useAuth();
+  const location = useLocation();
   const isSpecialAdmin = isSpecialAdminSession(session);
   const companyScope = session?.user?.tenantId || session?.user?.company?._id || session?.user?.id;
+  const requiredModules = requiredModulesForPath(location.pathname);
+  const moduleAllowed = requiredModules.length === 0 || requiredModules.some((moduleKey) => hasCompanyModule(session?.user?.company?.enabledModules, moduleKey));
+  const isAccessManagementPath = location.pathname.startsWith("/master-management/users")
+    || location.pathname.startsWith("/master-management/roles");
+  const accessManagementAllowed = !isAccessManagementPath
+    || hasPermission(session?.user?.permissions, "access.manage");
+
+  if (!isSpecialAdmin && (!moduleAllowed || !accessManagementAllowed)) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   return (
     <div className="min-h-screen">
@@ -299,6 +336,8 @@ function Shell() {
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/billing" element={<Billing />} />
             <Route path="/master-management" element={<MasterManagementHome />} />
+            <Route path="/master-management/users" element={<MasterAccessManagementPage section="users" />} />
+            <Route path="/master-management/roles" element={<MasterAccessManagementPage section="roles" />} />
             <Route path="/master-management/:entity" element={<MasterManagementListPage />} />
             <Route path="/master-management/:entity/new" element={<MasterManagementFormPage mode="create" />} />
             <Route path="/master-management/:entity/:id/edit" element={<MasterManagementFormPage mode="edit" />} />

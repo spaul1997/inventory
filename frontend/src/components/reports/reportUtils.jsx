@@ -1,32 +1,7 @@
-import { useMemo } from "react";
-import { useMasterData } from "../master/MasterDataContext.jsx";
-import { useStockData } from "../stock/StockDataContext.jsx";
-
 export const money = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 export const number = new Intl.NumberFormat("en-IN");
 
 export const categoryPalette = ["#2563eb", "#0f2a43", "#0ea5e9", "#d97706", "#94a3b8", "#16a34a", "#7c3aed", "#db2777"];
-
-export function useInventoryItems() {
-  const masterData = useMasterData();
-  const stockData = useStockData();
-
-  const products = masterData.getRows("product-item");
-
-  return useMemo(() => {
-    return products.map((row) => ({
-      code: row.code,
-      name: row.name,
-      type: row.productType || "Item",
-      category: row.category,
-      unit: row.unit,
-      stock: stockData.getTotalStock(row.code) || Number(row.stock) || 0,
-      price: Number(row.price) || 0,
-      status: row.status,
-      value: (stockData.getTotalStock(row.code) || Number(row.stock) || 0) * (Number(row.price) || 0),
-    }));
-  }, [products, stockData]);
-}
 
 export function groupByCategory(items) {
   const map = new Map();

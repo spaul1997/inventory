@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Link, Navigate, useParams } from "react-router-dom";
+import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ArrowDownCircle,
   ArrowLeftRight,
@@ -12,18 +12,42 @@ import {
   Scale,
   SlidersHorizontal,
 } from "lucide-react";
-import { stockEntities, materialByCode, warehouses } from "../data/stockManagement.js";
-import { purchaseOrders } from "../data/purchaseManagement.js";
+import { stockEntities, stockEntityOrder } from "../data/stockManagement.js";
 import { StockSidebar } from "../components/stock/StockSidebar.jsx";
 import { StockList } from "../components/stock/StockList.jsx";
 import { StockForm } from "../components/stock/StockForm.jsx";
 import { useStockData } from "../components/stock/StockDataContext.jsx";
 import { useMasterData } from "../components/master/MasterDataContext.jsx";
+import { usePurchaseData } from "../components/purchase/PurchaseDataContext.jsx";
 import { Badge, Metric, Panel } from "../components/ui.jsx";
 
 const money = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 const today = () => new Date().toISOString().slice(0, 10);
 const icons = { ArrowDownCircle, ArrowUpCircle, ArrowLeftRight, SlidersHorizontal, ClipboardCheck };
+
+function itemUnit(item) {
+  return item?.unit || item?.baseUnit || item?.purchaseUnit || "";
+}
+
+function itemPrice(item) {
+  return Number(item?.purchasePrice ?? item?.lastPurchasePrice ?? item?.standardCost ?? item?.price ?? item?.sellingPrice) || 0;
+}
+
+function activeWarehouseNames(masterData) {
+  return [
+    ...new Set(
+      masterData
+        .getRows("warehouse")
+        .filter((warehouse) => warehouse.status !== "Inactive")
+        .map((warehouse) => warehouse.name || warehouse.storeName || warehouse.code)
+        .filter(Boolean)
+    ),
+  ];
+}
+
+function batchDetailPath(batch) {
+  return `/stock-management/batch-lot-tracking/${encodeURIComponent(batch.id)}?warehouse=${encodeURIComponent(batch.warehouse || "")}`;
+}
 
 function deriveBatchStatus(batch, todayStr) {
   if (batch.status === "Blocked" || batch.status === "Consumed") return batch.status;
@@ -36,10 +60,14 @@ function deriveBatchStatus(batch, todayStr) {
 }
 
 function StockLayout({ children }) {
+  const { error } = useStockData();
   return (
     <div className="flex flex-col gap-5 lg:flex-row">
       <StockSidebar />
-      <div className="min-w-0 flex-1">{children}</div>
+      <div className="min-w-0 flex-1">
+        {error && <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+        {children}
+      </div>
     </div>
   );
 }
@@ -47,11 +75,11 @@ function StockLayout({ children }) {
 export function StockManagementDashboard() {
   const stockData = useStockData();
   const masterData = useMasterData();
-  const items = masterData.getRows("product-item");
+  const items = masterData.getRows("product-item").filter((item) => item.status !== "Inactive");
   const todayStr = today();
 
   const totalQty = items.reduce((sum, m) => sum + stockData.getTotalStock(m.code), 0);
-  const totalValue = items.reduce((sum, m) => sum + stockData.getTotalStock(m.code) * (materialByCode(m.code)?.price || 0), 0);
+  const totalValue = items.reduce((sum, item) => sum + stockData.getTotalStock(item.code) * itemPrice(item), 0);
   const stockInToday = stockData.movements.filter((m) => m.date === todayStr && (m.type === "Stock In" || m.type === "Purchase")).length;
   const stockOutToday = stockData.movements.filter((m) => m.date === todayStr && m.type === "Stock Out").length;
   const pendingTransfers = stockData.getRows("stock-transfer").filter((t) => ["Pending Approval", "In Transit"].includes(t.status)).length;
@@ -72,12 +100,6 @@ export function StockManagementDashboard() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Link to="/stock-management/stock-in/new" className="flex items-center gap-1.5 rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-slate-50">
-              <Plus size={15} /> Stock In
-            </Link>
-            <Link to="/stock-management/stock-out/new" className="flex items-center gap-1.5 rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-slate-50">
-              <Plus size={15} /> Stock Out
-            </Link>
             <Link to="/stock-management/stock-transfer/new" className="flex items-center gap-1.5 rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-slate-50">
               <Plus size={15} /> Stock Transfer
             </Link>
@@ -130,7 +152,7 @@ export function StockManagementDashboard() {
                       <td className="py-3 font-mono text-xs">{m.id}</td>
                       <td>{m.date}</td>
                       <td>{m.type}</td>
-                      <td>{materialByCode(m.item)?.name || m.item}</td>
+                      <td>{items.find((item) => item.code === m.item)?.name || m.item}</td>
                       <td>{m.warehouse}</td>
                       <td className={`pr-4 text-right font-medium ${m.qtyIn ? "text-emerald-700" : "text-[var(--danger)]"}`}>
                         {m.qtyIn ? `+${m.qtyIn}` : `-${m.qtyOut}`}
@@ -151,7 +173,7 @@ export function StockManagementDashboard() {
 
 export function StockManagementListPage() {
   const { entity } = useParams();
-  if (!stockEntities[entity]) return <Navigate to="/stock-management" replace />;
+  if (!stockEntities[entity] || !stockEntityOrder.includes(entity)) return <Navigate to="/stock-management" replace />;
   return (
     <StockLayout>
       <StockList entityKey={entity} />
@@ -161,7 +183,7 @@ export function StockManagementListPage() {
 
 export function StockManagementFormPage({ mode }) {
   const { entity, id } = useParams();
-  if (!stockEntities[entity]) return <Navigate to="/stock-management" replace />;
+  if (!stockEntities[entity] || !stockEntityOrder.includes(entity)) return <Navigate to="/stock-management" replace />;
   return (
     <StockLayout>
       <StockForm entityKey={entity} mode={mode} recordId={id} />
@@ -171,6 +193,8 @@ export function StockManagementFormPage({ mode }) {
 
 export function BatchLotTracking() {
   const stockData = useStockData();
+  const masterData = useMasterData();
+  const warehouses = [...new Set([...activeWarehouseNames(masterData), ...stockData.batches.map((batch) => batch.warehouse).filter(Boolean)])];
   const todayStr = today();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -260,9 +284,9 @@ export function BatchLotTracking() {
               </thead>
               <tbody>
                 {filtered.map((b) => (
-                  <tr key={b.id} className="border-b border-slate-100 hover:bg-slate-50/60">
+                  <tr key={`${b.id}-${b.code}-${b.warehouse}`} className="border-b border-slate-100 hover:bg-slate-50/60">
                     <td className="py-3 pl-4">
-                      <Link to={`/stock-management/batch-lot-tracking/${b.id}`} className="font-mono text-xs font-medium text-[var(--primary)] hover:underline">
+                      <Link to={batchDetailPath(b)} className="font-mono text-xs font-medium text-[var(--primary)] hover:underline">
                         {b.id}
                       </Link>
                     </td>
@@ -297,14 +321,17 @@ const batchDetailTabs = ["Overview", "Stock Movement", "Quality", "Documents"];
 
 export function BatchDetail() {
   const { batchId } = useParams();
+  const [searchParams] = useSearchParams();
   const stockData = useStockData();
+  const masterData = useMasterData();
   const [tab, setTab] = useState("Overview");
-  const batch = stockData.batches.find((b) => b.id === batchId);
+  const warehouse = searchParams.get("warehouse") || "";
+  const batch = stockData.batches.find((b) => b.id === batchId && (!warehouse || b.warehouse === warehouse));
 
   if (!batch) return <Navigate to="/stock-management/batch-lot-tracking" replace />;
   const status = deriveBatchStatus(batch, today());
-  const movements = stockData.movements.filter((m) => m.batch === batch.id);
-  const material = materialByCode(batch.code);
+  const movements = stockData.movements.filter((m) => m.batch === batch.id && (!warehouse || m.warehouse === warehouse));
+  const material = masterData.getRows("product-item").find((item) => item.code === batch.code);
 
   return (
     <StockLayout>
@@ -346,7 +373,7 @@ export function BatchDetail() {
                 <InfoRow label="Batch Number" value={batch.id} />
                 <InfoRow label="Manufacturing Date" value={batch.mfgDate} />
                 <InfoRow label="Expiry Date" value={batch.expiryDate || "N/A"} />
-                <InfoRow label="Current Quantity" value={`${batch.qty} ${material?.unit || ""}`} />
+                <InfoRow label="Current Quantity" value={`${batch.qty} ${itemUnit(material)}`} />
                 <InfoRow label="Warehouse" value={batch.warehouse} />
                 <InfoRow label="Location" value={batch.location} />
                 <InfoRow label="Supplier" value={batch.supplier} />
@@ -411,8 +438,8 @@ export function StockItemDetail() {
   const { code } = useParams();
   const stockData = useStockData();
   const masterData = useMasterData();
+  const purchaseData = usePurchaseData();
   const material = masterData.getRows("product-item").find((m) => m.code === code);
-  const info = materialByCode(code);
 
   if (!material) return <Navigate to="/stock-management" replace />;
 
@@ -420,9 +447,12 @@ export function StockItemDetail() {
   const total = stockData.getTotalStock(code);
   const batches = stockData.batches.filter((b) => b.code === code);
   const movements = stockData.movements.filter((m) => m.item === code).slice(0, 10);
-  const onOrder = purchaseOrders
+  const onOrder = purchaseData
+    .getRows("purchase-order")
     .filter((po) => !["Received", "Cancelled"].includes(po.status))
-    .reduce((sum, po) => sum + po.items.filter((i) => i.code === code).reduce((s, i) => s + (Number(i.qty) || 0), 0), 0);
+    .reduce((sum, po) => sum + (po.items || []).filter((i) => i.code === code).reduce((s, i) => s + (Number(i.qty) || 0), 0), 0);
+
+  const unit = itemUnit(material);
 
   return (
     <StockLayout>
@@ -438,10 +468,10 @@ export function StockItemDetail() {
         <p className="mt-0.5 font-mono text-xs text-[var(--muted)]">{code}</p>
 
         <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric label="Current Stock" value={`${total} ${material.unit}`} icon={Layers} tone="primary" />
-          <Metric label="Available Stock" value={`${total} ${material.unit}`} sub="Not reserved" icon={ArrowDownCircle} tone="success" />
-          <Metric label="On Order" value={`${onOrder} ${material.unit}`} sub="Open purchase orders" icon={ArrowLeftRight} tone="accent" />
-          <Metric label="Stock Value" value={money.format(total * (info?.price || 0))} icon={Scale} tone="warning" />
+          <Metric label="Current Stock" value={`${total} ${unit}`} icon={Layers} tone="primary" />
+          <Metric label="Available Stock" value={`${total} ${unit}`} sub="Not reserved" icon={ArrowDownCircle} tone="success" />
+          <Metric label="On Order" value={`${onOrder} ${unit}`} sub="Open purchase orders" icon={ArrowLeftRight} tone="accent" />
+          <Metric label="Stock Value" value={money.format(total * itemPrice(material))} icon={Scale} tone="warning" />
         </div>
 
         <div className="mt-5 grid gap-5 xl:grid-cols-2">
@@ -487,9 +517,9 @@ export function StockItemDetail() {
               </thead>
               <tbody>
                 {batches.map((b) => (
-                  <tr key={b.id} className="border-b border-slate-100">
+                  <tr key={`${b.id}-${b.code}-${b.warehouse}`} className="border-b border-slate-100">
                     <td className="py-2">
-                      <Link to={`/stock-management/batch-lot-tracking/${b.id}`} className="font-mono text-xs text-[var(--primary)] hover:underline">
+                      <Link to={batchDetailPath(b)} className="font-mono text-xs text-[var(--primary)] hover:underline">
                         {b.id}
                       </Link>
                     </td>
@@ -549,6 +579,9 @@ export function StockItemDetail() {
 
 export function StockMovementHistory() {
   const stockData = useStockData();
+  const masterData = useMasterData();
+  const items = masterData.getRows("product-item");
+  const warehouses = [...new Set([...activeWarehouseNames(masterData), ...stockData.movements.map((movement) => movement.warehouse).filter(Boolean)])];
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [warehouseFilter, setWarehouseFilter] = useState("");
@@ -556,7 +589,8 @@ export function StockMovementHistory() {
   const filtered = stockData.movements.filter((m) => {
     if (search.trim()) {
       const q = search.trim().toLowerCase();
-      if (!m.reference.toLowerCase().includes(q) && !(materialByCode(m.item)?.name || "").toLowerCase().includes(q)) return false;
+      const itemName = items.find((item) => item.code === m.item)?.name || "";
+      if (!String(m.reference || "").toLowerCase().includes(q) && !itemName.toLowerCase().includes(q)) return false;
     }
     if (typeFilter && m.type !== typeFilter) return false;
     if (warehouseFilter && m.warehouse !== warehouseFilter) return false;
@@ -566,7 +600,7 @@ export function StockMovementHistory() {
   function handleExport() {
     const header = "Date,Transaction No,Type,Item,Batch,Warehouse,In,Out,Balance,User";
     const lines = filtered.map((m) =>
-      [m.date, m.id, m.type, materialByCode(m.item)?.name || m.item, m.batch, m.warehouse, m.qtyIn, m.qtyOut, m.balance, m.user].join(",")
+      [m.date, m.id, m.type, items.find((item) => item.code === m.item)?.name || m.item, m.batch, m.warehouse, m.qtyIn, m.qtyOut, m.balance, m.user].join(",")
     );
     const blob = new Blob([[header, ...lines].join("\n")], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -649,7 +683,7 @@ export function StockMovementHistory() {
                     <td className="py-3 pl-4">{m.date}</td>
                     <td className="font-mono text-xs">{m.id}</td>
                     <td>{m.type}</td>
-                    <td>{materialByCode(m.item)?.name || m.item}</td>
+                    <td>{items.find((item) => item.code === m.item)?.name || m.item}</td>
                     <td className="font-mono text-xs">{m.batch || "—"}</td>
                     <td>{m.warehouse}</td>
                     <td className="text-right text-emerald-700">{m.qtyIn || ""}</td>
@@ -688,16 +722,16 @@ export function StockReports() {
   const masterData = useMasterData();
   const [active, setActive] = useState("stock-summary");
   const todayStr = today();
-  const items = masterData.getRows("product-item");
+  const items = masterData.getRows("product-item").filter((item) => item.status !== "Inactive");
 
   const stockSummaryRows = useMemo(
     () =>
       items.map((m) => ({
         code: m.code,
         name: m.name,
-        unit: m.unit,
+        unit: itemUnit(m),
         qty: stockData.getTotalStock(m.code),
-        value: stockData.getTotalStock(m.code) * (materialByCode(m.code)?.price || 0),
+        value: stockData.getTotalStock(m.code) * itemPrice(m),
       })),
     [items, stockData]
   );
@@ -707,7 +741,7 @@ export function StockReports() {
     items.forEach((m) => {
       const breakdown = stockData.getWarehouseBreakdown(m.code);
       Object.entries(breakdown).forEach(([wh, qty]) => {
-        if (qty > 0) rows.push({ warehouse: wh, code: m.code, name: m.name, qty, unit: m.unit });
+        if (qty > 0) rows.push({ warehouse: wh, code: m.code, name: m.name, qty, unit: itemUnit(m) });
       });
     });
     return rows;
@@ -833,9 +867,9 @@ export function StockReports() {
               </thead>
               <tbody>
                 {expiryRows.map((b) => (
-                  <tr key={b.id} className="border-b border-slate-100">
+                  <tr key={`${b.id}-${b.code}-${b.warehouse}`} className="border-b border-slate-100">
                     <td className="py-2">
-                      <Link to={`/stock-management/batch-lot-tracking/${b.id}`} className="font-mono text-xs text-[var(--primary)] hover:underline">
+                      <Link to={batchDetailPath(b)} className="font-mono text-xs text-[var(--primary)] hover:underline">
                         {b.id}
                       </Link>
                     </td>

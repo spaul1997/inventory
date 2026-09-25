@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import { FileText, IndianRupee, PackageCheck, Plus, Send, ShoppingCart, Undo2 } from "lucide-react";
 import {
+  formatDisplayDate,
   purchaseEntities,
   poTotals,
 } from "../data/purchaseManagement.js";
@@ -82,7 +83,7 @@ export function PurchaseManagementDashboard() {
                   <tr>
                     <th className="py-3">PO Number</th>
                     <th>Supplier</th>
-                    <th>Order Date</th>
+                    <th>PO Date & Time</th>
                     <th>Expected Date</th>
                     <th className="pr-4 text-right">Items</th>
                     <th className="pr-6 text-right">Total Amount</th>
@@ -98,7 +99,7 @@ export function PurchaseManagementDashboard() {
                         </Link>
                       </td>
                       <td className="font-medium">{po.supplier}</td>
-                      <td>{po.date}</td>
+                      <td>{formatDisplayDate(po.date, { includeTime: true })}</td>
                       <td>{po.expectedDate}</td>
                       <td className="pr-4 text-right">{po.items.length}</td>
                       <td className="pr-6 text-right">{money.format(poTotals(po.items).grandTotal)}</td>
@@ -211,7 +212,7 @@ function PurchaseOrderDetails({ id }) {
 
               <div className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
                 <InfoRow label="Supplier" value={po.supplier} />
-                <InfoRow label="PO Date" value={po.date} />
+                <InfoRow label="PO Date & Time" value={formatDisplayDate(po.date, { includeTime: true })} />
                 <InfoRow label="Expected Date" value={po.expectedDate} />
                 <InfoRow label="Warehouse" value={po.warehouse} />
                 <InfoRow label="Payment Terms" value={po.paymentTerms} />
@@ -270,7 +271,7 @@ function PurchaseOrderDetails({ id }) {
               empty="No goods receipts recorded against this PO yet."
               columns={[
                 { key: "id", label: "GRN Number", to: (r) => `/purchase-management/goods-receipt/${r.id}/view` },
-                { key: "date", label: "Receipt Date" },
+                { key: "date", label: "Receipt Date & Time" },
                 { key: "status", label: "Status", badge: true },
               ]}
             />
@@ -296,7 +297,7 @@ function PurchaseOrderDetails({ id }) {
               columns={[
                 { key: "id", label: "Issue Number", to: (r) => `/purchase-management/purchase-issue/${r.id}/view` },
                 { key: "refGRN", label: "GRN Number" },
-                { key: "date", label: "Issue Date" },
+                { key: "date", label: "DATE & TIME" },
                 { key: "issuedTo", label: "Issued To" },
                 { key: "status", label: "Status", badge: true },
               ]}
@@ -410,19 +411,23 @@ function RelatedList({ rows, columns, empty }) {
         <tbody>
           {rows.map((row) => (
             <tr key={row.id} className="border-t border-slate-100">
-              {columns.map((col) => (
-                <td key={col.key} className="px-3 py-2">
-                  {col.badge ? (
-                    <Badge>{row[col.key]}</Badge>
-                  ) : col.to ? (
-                    <Link to={col.to(row)} className="font-mono text-xs font-medium text-[var(--primary)] hover:underline">
-                      {row[col.key]}
-                    </Link>
-                  ) : (
-                    row[col.key]
-                  )}
-                </td>
-              ))}
+              {columns.map((col) => {
+                const value = row[col.key];
+                const displayValue = /date/i.test(col.key) || /date/i.test(col.label) ? formatDisplayDate(value, { includeTime: /time/i.test(col.label) }) : value;
+                return (
+                  <td key={col.key} className="px-3 py-2">
+                    {col.badge ? (
+                      <Badge>{displayValue}</Badge>
+                    ) : col.to ? (
+                      <Link to={col.to(row)} className="font-mono text-xs font-medium text-[var(--primary)] hover:underline">
+                        {displayValue}
+                      </Link>
+                    ) : (
+                      displayValue
+                    )}
+                  </td>
+                );
+              })}
             </tr>
           ))}
         </tbody>

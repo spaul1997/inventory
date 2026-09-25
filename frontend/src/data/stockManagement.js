@@ -2,25 +2,16 @@
 // config-driven pattern as Master/Purchase Management. Adds a per-warehouse
 // stock ledger on top of Master Management's Product / Item aggregate stock
 // (see components/stock/StockDataContext.jsx for how the two stay in sync).
-import { masterEntities } from "./masterManagement.js";
 import { materials, materialByCode, warehouses, suppliers } from "./purchaseManagement.js";
 
 export { materials, materialByCode, warehouses, suppliers };
 
+// Stock starts from the current Product / Item master in StockDataContext.
+// Transactions, movements and batches below are intentionally not pre-seeded:
+// operational stock screens must show only records created by live workflows.
 export const initialBalances = {};
-masterEntities["product-item"].list.rows.forEach((row) => {
-  initialBalances[row.code] = { "Raw Material Store": row.stock };
-});
 
-export const initialBatches = [
-  { id: "B-0821-01", code: "RM-2001", item: "Mild Steel Rod 12mm", mfgDate: "2026-08-10", expiryDate: "", qty: 480, warehouse: "Raw Material Store", location: "Rack 1 Shelf 1", supplier: "Bharat Steel Corp", reference: "GRN-2026-0032", status: "Active" },
-  { id: "B-0820-04", code: "RM-2002", item: "ABS Plastic Granules", mfgDate: "2026-08-05", expiryDate: "2028-08-05", qty: 200, warehouse: "Raw Material Store", location: "Rack 1 Shelf 2", supplier: "Global Polymers Inc", reference: "GRN-2026-0033", status: "Active" },
-  { id: "B-0820-05", code: "RM-2006", item: "Rubber Compound", mfgDate: "2026-08-05", expiryDate: "2027-08-20", qty: 92, warehouse: "Raw Material Store", location: "Bin 1", supplier: "Global Polymers Inc", reference: "GRN-2026-0033", status: "Active" },
-  { id: "B-0821-09", code: "RM-2005", item: "Stainless Steel Sheet 2mm", mfgDate: "2026-08-14", expiryDate: "", qty: 100, warehouse: "Raw Material Store", location: "Rack 2 Shelf 1", supplier: "Precision Bearings Ltd", reference: "GRN-2026-0034", status: "Active" },
-  { id: "B-0715-02", code: "RM-2004", item: "Industrial Adhesive", mfgDate: "2026-07-01", expiryDate: "2026-08-28", qty: 25, warehouse: "Raw Material Store", location: "Bin 3", supplier: "Hydro Tech Industries", reference: "PO-2026-0047", status: "Active" },
-  { id: "B-0501-01", code: "RM-2004", item: "Industrial Adhesive", mfgDate: "2026-05-01", expiryDate: "2026-08-01", qty: 15, warehouse: "Raw Material Store", location: "Bin 3", supplier: "Hydro Tech Industries", reference: "PO-2026-0031", status: "Expired" },
-  { id: "B-0610-03", code: "RM-2003", item: "Copper Wire 2.5mm", mfgDate: "2026-06-10", expiryDate: "", qty: 3600, warehouse: "Raw Material Store", location: "Rack 3 Shelf 1", supplier: "ElectroParts Supply Co", reference: "Opening Stock", status: "Active" },
-];
+export const initialBatches = [];
 
 export const stockInRows = [
   { id: "SIN-2026-0201", date: "2026-08-14", refType: "Purchase", refNumber: "GRN-2026-0032", warehouse: "Raw Material Store", location: "Rack 1 Shelf 1", receivedBy: "Priya Nair", items: [{ code: "RM-2001", name: "Mild Steel Rod 12mm", batch: "B-0821-01", qty: 480, unit: "KG", unitCost: 68, location: "Rack 1 Shelf 1" }], status: "Completed" },
@@ -147,18 +138,7 @@ export const countRows = [
   },
 ];
 
-export const initialMovements = [
-  { id: "MOV-0001", date: "2026-08-10", type: "Opening Stock", item: "RM-2001", batch: "B-0821-01", warehouse: "Raw Material Store", qtyIn: 8000, qtyOut: 0, balance: 8000, reference: "Opening Balance", user: "System" },
-  { id: "MOV-0002", date: "2026-08-14", type: "Purchase", item: "RM-2001", batch: "B-0821-01", warehouse: "Raw Material Store", qtyIn: 480, qtyOut: 0, balance: 8480, reference: "GRN-2026-0032 / SIN-2026-0201", user: "Priya Nair" },
-  { id: "MOV-0003", date: "2026-08-18", type: "Stock Out", item: "RM-2001", batch: "B-0821-01", warehouse: "Raw Material Store", qtyIn: 0, qtyOut: 220, balance: 8260, reference: "WO-2026-0081 / SOUT-2026-0301", user: "Karan Mehta" },
-  { id: "MOV-0004", date: "2026-08-19", type: "Transfer Out", item: "RM-2001", batch: "B-0821-01", warehouse: "Raw Material Store", qtyIn: 0, qtyOut: 150, balance: 8110, reference: "TRF-2026-0401", user: "Karan Mehta" },
-  { id: "MOV-0005", date: "2026-08-19", type: "Transfer In", item: "RM-2001", batch: "B-0821-01", warehouse: "Main Manufacturing Plant", qtyIn: 150, qtyOut: 0, balance: 150, reference: "TRF-2026-0401", user: "Karan Mehta" },
-  { id: "MOV-0006", date: "2026-08-20", type: "Adjustment", item: "RM-2001", batch: "B-0821-01", warehouse: "Raw Material Store", qtyIn: 5, qtyOut: 0, balance: 8180, reference: "ADJ-2026-0502", user: "Anil Deshmukh" },
-  { id: "MOV-0007", date: "2026-08-15", type: "Adjustment", item: "RM-2004", batch: "B-0715-02", warehouse: "Raw Material Store", qtyIn: 0, qtyOut: 2, balance: 40, reference: "ADJ-2026-0501", user: "Anil Deshmukh" },
-  { id: "MOV-0008", date: "2026-08-20", type: "Purchase", item: "RM-2002", batch: "B-0820-04", warehouse: "Raw Material Store", qtyIn: 200, qtyOut: 0, balance: 1200, reference: "GRN-2026-0033 / SIN-2026-0202", user: "Priya Nair" },
-  { id: "MOV-0009", date: "2026-08-20", type: "Purchase", item: "RM-2006", batch: "B-0820-05", warehouse: "Raw Material Store", qtyIn: 92, qtyOut: 0, balance: 92, reference: "GRN-2026-0033 / SIN-2026-0202", user: "Priya Nair" },
-  { id: "MOV-0010", date: "2026-08-19", type: "Stock Out", item: "RM-2006", batch: "B-0820-05", warehouse: "Raw Material Store", qtyIn: 0, qtyOut: 12, balance: 80, reference: "SOUT-2026-0302", user: "Priya Nair" },
-];
+export const initialMovements = [];
 
 const referenceTypesIn = ["Purchase", "Production", "Sales Return", "Opening Stock", "Transfer", "Other"];
 const referenceTypesOut = ["Production", "Sales", "Internal Consumption", "Damage", "Sample", "Other"];
@@ -172,7 +152,7 @@ export const stockEntities = {
     icon: "ArrowDownCircle",
     description: "Record materials and products received into inventory.",
     statLabel: "Total Stock In",
-    rows: stockInRows,
+    rows: [],
     list: {
       subtitle: "Record materials and products received into inventory.",
       searchPlaceholder: "Search transaction number, item, reference...",
@@ -276,7 +256,7 @@ export const stockEntities = {
     icon: "ArrowUpCircle",
     description: "Record inventory leaving a warehouse.",
     statLabel: "Total Stock Out",
-    rows: stockOutRows,
+    rows: [],
     list: {
       subtitle: "Record inventory leaving a warehouse.",
       searchPlaceholder: "Search transaction number, item, reference...",
@@ -382,15 +362,15 @@ export const stockEntities = {
     icon: "ArrowLeftRight",
     description: "Transfer inventory between warehouses or storage locations.",
     statLabel: "Total Transfers",
-    rows: transferRows,
+    rows: [],
     list: {
       subtitle: "Transfer inventory between warehouses or storage locations.",
       searchPlaceholder: "Search transfer number, warehouse...",
       searchKeys: ["id", "fromWarehouse", "toWarehouse"],
       dateKey: "date",
       filters: [
-        { key: "fromWarehouse", label: "From Warehouse", options: warehouses },
-        { key: "toWarehouse", label: "To Warehouse", options: warehouses },
+        { key: "fromWarehouse", label: "From Warehouse", optionsFrom: "warehouse" },
+        { key: "toWarehouse", label: "To Warehouse", optionsFrom: "warehouse" },
         { key: "status", label: "Status", options: ["Draft", "Pending Approval", "In Transit", "Completed", "Cancelled"] },
       ],
       summary: [
@@ -418,6 +398,7 @@ export const stockEntities = {
       ],
     },
     form: {
+      singlePage: true,
       tabs: [
         {
           key: "info",
@@ -425,14 +406,10 @@ export const stockEntities = {
           fields: [
             { key: "id", label: "Transfer Number", type: "text", required: true, autoLabel: "Auto-generated" },
             { key: "date", label: "Transfer Date", type: "date", required: true },
-            { key: "fromWarehouse", label: "From Warehouse", type: "select", required: true, options: warehouses },
-            { key: "fromLocation", label: "From Location", type: "text" },
-            { key: "toWarehouse", label: "To Warehouse", type: "select", required: true, options: warehouses },
-            { key: "toLocation", label: "To Location", type: "text" },
-            { key: "requestedBy", label: "Requested By", type: "text" },
-            { key: "reason", label: "Transfer Reason", type: "text" },
-            { key: "expectedDate", label: "Expected Date", type: "date" },
-            { key: "remarks", label: "Remarks", type: "textarea", span: "full" },
+            { key: "fromWarehouse", label: "From Warehouse", type: "select", required: true, optionsFrom: "warehouse", clearOnChange: ["fromLocation", "items"] },
+            { key: "fromLocation", label: "From Location", type: "select", optionsFrom: "stock-location", dependsOn: "fromWarehouse" },
+            { key: "toWarehouse", label: "To Warehouse", type: "select", required: true, optionsFrom: "warehouse", clearOnChange: ["toLocation"] },
+            { key: "toLocation", label: "To Location", type: "select", optionsFrom: "stock-location", dependsOn: "toWarehouse" },
           ],
         },
         {
@@ -450,20 +427,30 @@ export const stockEntities = {
                 { key: "code", label: "Item Code", type: "material-select" },
                 { key: "name", label: "Item", type: "text", readOnly: true },
                 { key: "available", label: "Available Qty", type: "available-stock", warehouseKey: "fromWarehouse" },
-                { key: "batch", label: "Batch / Lot", type: "text" },
+                { key: "batch", label: "Batch / Lot", type: "batch-select" },
                 { key: "qty", label: "Transfer Qty", type: "number", maxKey: "available" },
                 { key: "unit", label: "Unit", type: "text", readOnly: true },
               ],
             },
           ],
         },
+        {
+          key: "additional",
+          label: "Additional Information",
+          fields: [
+            { key: "requestedBy", label: "Requested By", type: "text" },
+            { key: "reason", label: "Transfer Reason", type: "text" },
+            { key: "expectedDate", label: "Expected Date", type: "date" },
+            { key: "remarks", label: "Remarks", type: "textarea", span: "full" },
+          ],
+        },
       ],
     },
     formActions: [
-      { key: "saveDraft", label: "Save Draft", kind: "outline", status: "Draft" },
-      { key: "submit", label: "Submit", kind: "outline", status: "Pending Approval", validate: true },
-      { key: "approve", label: "Approve", kind: "outline", status: "In Transit", validate: true },
-      { key: "receive", label: "Receive Transfer", kind: "primary", status: "Completed", validate: true, stockEffect: "transfer" },
+      { key: "saveDraft", label: "Save Draft", kind: "outline", status: "Draft", showWhen: (row) => row.status === "Draft" },
+      { key: "submit", label: "Submit", kind: "outline", status: "Pending Approval", validate: true, showWhen: (row) => row.status === "Draft" },
+      { key: "approve", label: "Approve", kind: "outline", status: "In Transit", validate: true, showWhen: (row, mode) => mode === "edit" && row.status === "Pending Approval" },
+      { key: "receive", label: "Receive Transfer", kind: "primary", status: "Completed", validate: true, stockEffect: "transfer", showWhen: (row, mode) => mode === "edit" && row.status === "In Transit" },
     ],
   },
 
@@ -473,14 +460,14 @@ export const stockEntities = {
     icon: "SlidersHorizontal",
     description: "Correct inventory differences caused by damage, loss or data errors.",
     statLabel: "Total Adjustments",
-    rows: adjustmentRows,
+    rows: [],
     list: {
       subtitle: "Correct inventory differences caused by damage, loss, data errors, etc.",
       searchPlaceholder: "Search adjustment number, item...",
       searchKeys: ["id", "item"],
       dateKey: "date",
       filters: [
-        { key: "warehouse", label: "Warehouse", options: warehouses },
+        { key: "warehouse", label: "Warehouse", optionsFrom: "warehouse" },
         { key: "type", label: "Adjustment Type", options: ["Increase", "Decrease"] },
         { key: "reason", label: "Reason", options: adjustmentReasons },
         { key: "status", label: "Status", options: ["Draft", "Pending Approval", "Posted"] },
@@ -516,8 +503,8 @@ export const stockEntities = {
           fields: [
             { key: "id", label: "Adjustment Number", type: "text", required: true, autoLabel: "Auto-generated" },
             { key: "date", label: "Adjustment Date", type: "date", required: true },
-            { key: "warehouse", label: "Warehouse", type: "select", required: true, options: warehouses },
-            { key: "location", label: "Location", type: "text" },
+            { key: "warehouse", label: "Warehouse", type: "select", required: true, optionsFrom: "warehouse", clearOnChange: ["location"] },
+            { key: "location", label: "Location", type: "select", optionsFrom: "stock-location", dependsOn: "warehouse" },
             { key: "type", label: "Adjustment Type", type: "select", required: true, options: ["Increase", "Decrease"] },
             { key: "code", label: "Item", type: "material-select-field", required: true },
             { key: "item", label: "Item Name", type: "text", readOnly: true },
@@ -531,9 +518,9 @@ export const stockEntities = {
       ],
     },
     formActions: [
-      { key: "saveDraft", label: "Save Draft", kind: "outline", status: "Draft" },
-      { key: "submit", label: "Submit for Approval", kind: "outline", status: "Pending Approval", validate: true },
-      { key: "approve", label: "Approve & Post", kind: "primary", status: "Posted", validate: true, stockEffect: "adjustment" },
+      { key: "saveDraft", label: "Save Draft", kind: "outline", status: "Draft", showWhen: (row) => row.status === "Draft" },
+      { key: "submit", label: "Submit for Approval", kind: "outline", status: "Pending Approval", validate: true, showWhen: (row) => row.status === "Draft" },
+      { key: "approve", label: "Approve & Post", kind: "primary", status: "Posted", validate: true, stockEffect: "adjustment", showWhen: (row, mode) => mode === "edit" && row.status === "Pending Approval" },
     ],
   },
 
@@ -543,14 +530,14 @@ export const stockEntities = {
     icon: "ClipboardCheck",
     description: "Perform physical inventory counting and compare against system stock.",
     statLabel: "Total Counts",
-    rows: countRows,
+    rows: [],
     list: {
       subtitle: "Perform physical inventory counting and compare physical stock with system stock.",
       searchPlaceholder: "Search count number, warehouse...",
       searchKeys: ["id", "warehouse"],
       dateKey: "date",
       filters: [
-        { key: "warehouse", label: "Warehouse", options: warehouses },
+        { key: "warehouse", label: "Warehouse", optionsFrom: "warehouse" },
         { key: "countType", label: "Count Type", options: countTypes },
         { key: "status", label: "Status", options: ["Draft", "In Progress", "Pending Review", "Approved", "Completed"] },
       ],
@@ -582,7 +569,7 @@ export const stockEntities = {
       ],
       rowActions: [
         { key: "view", label: "View", icon: "Eye" },
-        { key: "edit", label: "Edit", icon: "Pencil", hideWhen: (row) => ["Approved", "Completed"].includes(row.status) },
+        { key: "edit", label: "Edit", icon: "Pencil", hideWhen: (row) => row.status === "Completed" },
         { key: "print", label: "Print", icon: "Printer", print: true },
       ],
     },
@@ -594,8 +581,8 @@ export const stockEntities = {
           fields: [
             { key: "id", label: "Count Number", type: "text", required: true, autoLabel: "Auto-generated" },
             { key: "date", label: "Count Date", type: "date", required: true },
-            { key: "warehouse", label: "Warehouse", type: "select", required: true, options: warehouses },
-            { key: "location", label: "Location", type: "text" },
+            { key: "warehouse", label: "Warehouse", type: "select", required: true, optionsFrom: "warehouse", clearOnChange: ["location", "items"] },
+            { key: "location", label: "Location", type: "select", optionsFrom: "stock-location", dependsOn: "warehouse" },
             { key: "countType", label: "Count Type", type: "select", options: countTypes },
             { key: "assignedTo", label: "Assigned To", type: "text" },
             { key: "supervisor", label: "Supervisor", type: "text" },
@@ -638,13 +625,13 @@ export const stockEntities = {
       ],
     },
     formActions: [
-      { key: "saveDraft", label: "Save Draft", kind: "outline", status: "Draft" },
-      { key: "start", label: "Start Count", kind: "outline", status: "In Progress" },
-      { key: "submit", label: "Submit for Review", kind: "outline", status: "Pending Review" },
-      { key: "approve", label: "Approve Variance", kind: "outline", status: "Approved", validate: true },
-      { key: "apply", label: "Apply Stock Adjustment", kind: "primary", status: "Completed", validate: true, createsAdjustment: true },
+      { key: "saveDraft", label: "Save Draft", kind: "outline", status: "Draft", showWhen: (row) => row.status === "Draft" },
+      { key: "start", label: "Start Count", kind: "outline", status: "In Progress", validate: true, showWhen: (row) => row.status === "Draft" },
+      { key: "submit", label: "Submit for Review", kind: "outline", status: "Pending Review", validate: true, showWhen: (row, mode) => mode === "edit" && row.status === "In Progress" },
+      { key: "approve", label: "Approve Variance", kind: "outline", status: "Approved", validate: true, showWhen: (row, mode) => mode === "edit" && row.status === "Pending Review" },
+      { key: "apply", label: "Apply Stock Adjustment", kind: "primary", status: "Completed", validate: true, createsAdjustment: true, showWhen: (row, mode) => mode === "edit" && row.status === "Approved" },
     ],
   },
 };
 
-export const stockEntityOrder = ["stock-in", "stock-out", "stock-transfer", "stock-adjustment", "stock-count"];
+export const stockEntityOrder = ["stock-transfer", "stock-adjustment", "stock-count"];

@@ -1,11 +1,13 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AlertCircle, ChevronRight as Crumb, Paperclip, Plus, Trash2 } from "lucide-react";
-import { stockEntities, materials, materialByCode } from "../../data/stockManagement.js";
+import { stockEntities } from "../../data/stockManagement.js";
 import { ConfirmDialog } from "../ui.jsx";
 import { useStockData } from "./StockDataContext.jsx";
+import { useMasterData } from "../master/MasterDataContext.jsx";
 import { useToast } from "../Toast.jsx";
 import { WorkflowTimeline } from "../purchase/WorkflowTimeline.jsx";
+import { useAuth } from "../../stores/AuthStore.jsx";
 
 const money = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 });
 const today = () => new Date().toISOString().slice(0, 10);
@@ -23,11 +25,48 @@ function nextId(entityKey, rows) {
 const workflowSteps = {
   "stock-in": ["Draft", "Posted", "Inventory Updated"],
   "stock-out": ["Draft", "Posted", "Inventory Deducted"],
-  "stock-transfer": ["Created", "Approved", "In Transit", "Received", "Completed"],
-  "stock-count": ["Draft", "Counting", "Variance Review", "Approved", "Adjustment", "Completed"],
+  "stock-transfer": ["Created", "Pending Approval", "In Transit", "Completed"],
+  "stock-count": ["Created", "In Progress", "Pending Review", "Approved", "Completed"],
 };
 
-function LineItemCell({ column, row, disabled, onChange, formValues, getAvailable }) {
+function materialUnit(material) {
+  return material?.unit || material?.baseUnit || material?.purchaseUnit || "";
+}
+
+function optionLabel(row) {
+  return row.name || row.storeName || row.code || "";
+}
+
+function uniqueOptions(values) {
+  return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
+function resolveFieldOptions(field, masterData, currentValue, values) {
+  if (field.optionsFrom) {
+    const dependencyValue = field.dependsOn ? String(values[field.dependsOn] || "").trim() : "";
+    if (field.dependsOn && !dependencyValue) return [];
+    const warehouse = field.dependsOn
+      ? masterData
+          .getRows("warehouse")
+          .find((row) => [row.code, row.name, row.storeName].some((candidate) => String(candidate || "").trim().toLowerCase() === dependencyValue.toLowerCase()))
+      : null;
+    const dependencyAliases = new Set(
+      [dependencyValue, warehouse?.code, warehouse?.name, warehouse?.storeName]
+        .map((candidate) => String(candidate || "").trim().toLowerCase())
+        .filter(Boolean)
+    );
+    const masterOptions = masterData
+      .getRows(field.optionsFrom)
+      .filter((row) => row.status !== "Inactive")
+      .filter((row) => !field.dependsOn || dependencyAliases.has(String(row.warehouse || "").trim().toLowerCase()))
+      .map(optionLabel);
+    return uniqueOptions([...masterOptions, ...(masterOptions.includes(currentValue) ? [currentValue] : [])]);
+  }
+
+  return uniqueOptions([...(field.options || []), currentValue]);
+}
+
+function LineItemCell({ column, row, disabled, onChange, formValues, getAvailable, materialRows, stockBatches }) {
   const readOnly = disabled || column.readOnly;
   const warehouse = column.warehouseKey ? formValues[column.warehouseKey] : formValues.warehouse;
 
@@ -38,16 +77,41 @@ function LineItemCell({ column, row, disabled, onChange, formValues, getAvailabl
         value={row.code || ""}
         onChange={(event) => {
           const code = event.target.value;
-          const mat = materialByCode(code);
+          const mat = materialRows.find((material) => material.code === code);
           const systemQty = code ? getAvailable(code, warehouse) : 0;
-          onChange({ ...row, code, name: mat?.name || "", unit: mat?.unit || "", systemQty });
+          onChange({ ...row, code, name: mat?.name || "", unit: materialUnit(mat), systemQty, batch: "" });
         }}
         className="w-full min-w-[170px] rounded border border-[var(--line)] px-2 py-1.5 text-sm disabled:bg-slate-50 disabled:text-[var(--muted)]"
       >
         <option value="">Select material...</option>
-        {materials.map((m) => (
+        {materialRows.map((m) => (
           <option key={m.code} value={m.code}>
             {m.code} — {m.name}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  if (column.type === "batch-select") {
+    const options = (stockBatches || []).filter(
+      (batch) =>
+        batch.code === row.code &&
+        batch.warehouse === warehouse &&
+        batch.status !== "Consumed" &&
+        (Number(batch.qty) || 0) > 0
+    );
+    return (
+      <select
+        disabled={readOnly || !row.code || !warehouse}
+        value={row.batch || ""}
+        onChange={(event) => onChange({ ...row, batch: event.target.value })}
+        className="w-full min-w-[120px] rounded border border-[var(--line)] px-2 py-1.5 text-sm disabled:bg-slate-50 disabled:text-[var(--muted)]"
+      >
+        <option value="">Select batch...</option>
+        {options.map((batch) => (
+          <option key={`${batch.id}-${batch.warehouse}`} value={batch.id}>
+            {batch.id} ({batch.qty})
           </option>
         ))}
       </select>
@@ -104,7 +168,7 @@ function LineItemCell({ column, row, disabled, onChange, formValues, getAvailabl
   );
 }
 
-function LineItemsField({ field, rows, disabled, onChange, formValues, getAvailable }) {
+function LineItemsField({ field, rows, disabled, onChange, formValues, getAvailable, materialRows, stockBatches }) {
   const items = Array.isArray(rows) ? rows : [];
   const totals =
     field.totals === "stockIn"
@@ -145,6 +209,8 @@ function LineItemsField({ field, rows, disabled, onChange, formValues, getAvaila
                       disabled={disabled}
                       formValues={formValues}
                       getAvailable={getAvailable}
+                      materialRows={materialRows}
+                      stockBatches={stockBatches}
                       onChange={(next) => {
                         const updated = [...items];
                         updated[index] = next;
@@ -192,13 +258,13 @@ function LineItemsField({ field, rows, disabled, onChange, formValues, getAvaila
   );
 }
 
-function Field({ field, value, error, disabled, onChange, formValues, getAvailable }) {
+function Field({ field, value, error, disabled, onChange, formValues, getAvailable, materialRows, stockBatches }) {
   const baseInput = `w-full rounded-md border bg-white px-3 py-2 text-sm text-[var(--ink)] outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-[var(--muted)] ${
     error ? "border-[var(--danger)] focus:ring-red-100" : "border-[var(--line)]"
   }`;
 
   if (field.type === "lineItems") {
-    return <LineItemsField field={field} rows={value} disabled={disabled} onChange={onChange} formValues={formValues} getAvailable={getAvailable} />;
+    return <LineItemsField field={field} rows={value} disabled={disabled} onChange={onChange} formValues={formValues} getAvailable={getAvailable} materialRows={materialRows} stockBatches={stockBatches} />;
   }
 
   if (field.type === "material-select-field") {
@@ -210,7 +276,7 @@ function Field({ field, value, error, disabled, onChange, formValues, getAvailab
         </label>
         <select value={value || ""} disabled={disabled} onChange={(event) => onChange(event.target.value)} className={baseInput}>
           <option value="">Select item...</option>
-          {materials.map((m) => (
+          {materialRows.map((m) => (
             <option key={m.code} value={m.code}>
               {m.code} — {m.name}
             </option>
@@ -273,8 +339,8 @@ function Field({ field, value, error, disabled, onChange, formValues, getAvailab
           {field.label}
           {field.required && <span className="ml-0.5 text-[var(--danger)]">*</span>}
         </label>
-        <select value={value || ""} disabled={disabled} onChange={(event) => onChange(event.target.value)} className={baseInput}>
-          <option value="">Select {field.label.toLowerCase()}...</option>
+        <select value={field.options.includes(value) ? value : ""} disabled={disabled || Boolean(field.dependsOn && !formValues[field.dependsOn])} onChange={(event) => onChange(event.target.value)} className={baseInput}>
+          <option value="">{field.dependsOn && !formValues[field.dependsOn] ? `Select ${field.dependsOn.replace(/([A-Z])/g, " $1").toLowerCase()} first...` : `Select ${field.label.toLowerCase()}...`}</option>
           {field.options.map((option) => (
             <option key={option} value={option}>
               {option}
@@ -335,9 +401,18 @@ function Field({ field, value, error, disabled, onChange, formValues, getAvailab
 export function StockForm({ entityKey, mode, recordId }) {
   const entity = stockEntities[entityKey];
   const stockData = useStockData();
+  const masterData = useMasterData();
   const showToast = useToast();
+  const { session } = useAuth();
   const navigate = useNavigate();
   const isView = mode === "view";
+  const userName = session?.user?.name || "You";
+  const lockedStatuses = {
+    "stock-transfer": ["Completed", "Cancelled"],
+    "stock-adjustment": ["Posted", "Cancelled"],
+    "stock-count": ["Completed", "Cancelled"],
+  };
+  const materialRows = masterData.getRows("product-item").filter((row) => row.status !== "Inactive");
 
   const existingRecord = recordId ? stockData.getRecord(entityKey, recordId) : null;
 
@@ -352,6 +427,20 @@ export function StockForm({ entityKey, mode, recordId }) {
   const [errors, setErrors] = useState({});
   const [errorBanner, setErrorBanner] = useState("");
   const [pendingAction, setPendingAction] = useState(null);
+  const hydratedKeyRef = useRef("");
+
+  useEffect(() => {
+    if (stockData.loading) return;
+    const hydrationKey = recordId ? `${entityKey}:${recordId}` : `${entityKey}:new`;
+    if (hydratedKeyRef.current === hydrationKey) return;
+
+    if (recordId && existingRecord) {
+      setValues({ ...existingRecord });
+    } else if (!recordId) {
+      setValues((prev) => ({ ...prev, id: nextId(entityKey, stockData.getRows(entityKey)) }));
+    }
+    hydratedKeyRef.current = hydrationKey;
+  }, [entityKey, existingRecord, recordId, stockData.loading]);
 
   function setField(key, value) {
     setValues((prev) => ({ ...prev, [key]: value }));
@@ -359,8 +448,9 @@ export function StockForm({ entityKey, mode, recordId }) {
 
   function handleFieldChange(field, next) {
     setField(field.key, next);
+    (field.clearOnChange || []).forEach((key) => setField(key, ""));
     if (entityKey === "stock-adjustment" && field.key === "code") {
-      const mat = materialByCode(next);
+      const mat = materialRows.find((material) => material.code === next);
       setField("item", mat?.name || "");
     }
   }
@@ -376,6 +466,56 @@ export function StockForm({ entityKey, mode, recordId }) {
         }
       });
     });
+
+    if (entityKey === "stock-transfer") {
+      if (values.fromWarehouse && values.fromWarehouse === values.toWarehouse) {
+        nextErrors.toWarehouse = "Destination warehouse must be different from source warehouse.";
+        firstInvalidTab ||= "info";
+      }
+      const items = Array.isArray(values.items) ? values.items : [];
+      const invalidItem = items.find((item) => {
+        const qty = Number(item.qty) || 0;
+        const available = stockData.getAvailable(item.code, values.fromWarehouse);
+        const availableBatches = stockData.batches.filter(
+          (batch) => batch.code === item.code && batch.warehouse === values.fromWarehouse && batch.status !== "Consumed" && (Number(batch.qty) || 0) > 0
+        );
+        const selectedBatch = availableBatches.find((batch) => batch.id === item.batch);
+        return !item.code || qty <= 0 || qty > available || (availableBatches.length > 0 && !selectedBatch) || (selectedBatch && qty > (Number(selectedBatch.qty) || 0));
+      });
+      const hasDuplicateItems = new Set(items.map((item) => item.code).filter(Boolean)).size !== items.filter((item) => item.code).length;
+      if (items.length === 0 || invalidItem || hasDuplicateItems) {
+        nextErrors.items = items.length === 0
+          ? "Add at least one item to the transfer."
+          : hasDuplicateItems
+            ? "Each transfer item can be added only once."
+            : `${invalidItem.name || invalidItem.code || "Transfer item"} needs a valid batch and available quantity.`;
+        firstInvalidTab ||= "items";
+      }
+    }
+
+    if (entityKey === "stock-adjustment") {
+      const qty = Number(values.qty) || 0;
+      const available = stockData.getAvailable(values.code, values.warehouse);
+      if (qty <= 0 || (values.type === "Decrease" && qty > available)) {
+        nextErrors.qty = qty <= 0 ? "Adjustment quantity must be greater than zero." : `Only ${available} is available in this warehouse.`;
+        firstInvalidTab ||= "info";
+      }
+    }
+
+    if (entityKey === "stock-count") {
+      const items = Array.isArray(values.items) ? values.items : [];
+      const invalidItem = items.find((item) => !item.code || item.physicalQty === "" || item.physicalQty === undefined || Number(item.physicalQty) < 0);
+      const hasDuplicateItems = new Set(items.map((item) => item.code).filter(Boolean)).size !== items.filter((item) => item.code).length;
+      if (items.length === 0 || invalidItem || hasDuplicateItems) {
+        nextErrors.items = items.length === 0
+          ? "Add at least one item to count."
+          : hasDuplicateItems
+            ? "Each count item can be added only once."
+            : "Every count item needs a valid physical quantity.";
+        firstInvalidTab ||= "items";
+      }
+    }
+
     setErrors(nextErrors);
     if (firstInvalidTab) {
       setActiveTab(firstInvalidTab);
@@ -386,28 +526,44 @@ export function StockForm({ entityKey, mode, recordId }) {
     return true;
   }
 
-  function executeAction(action) {
+  async function executeAction(action) {
     const record = { ...values, status: action.status || values.status };
-    if (values.activity) record.activity = [...values.activity, { event: action.status || "Updated", date: today(), by: "You" }];
+    if (entityKey === "stock-adjustment") {
+      const currentStock = stockData.getAvailable(values.code, values.warehouse);
+      const delta = values.type === "Increase" ? Number(values.qty) || 0 : -(Number(values.qty) || 0);
+      record.currentStock = currentStock;
+      record.newStock = Math.max(0, currentStock + delta);
+    }
+    const activity = Array.isArray(values.activity) && values.activity.length
+      ? [...values.activity]
+      : [{ event: "Created", date: values.date || today(), by: userName }];
+    if (action.status && action.status !== "Draft" && activity.at(-1)?.event !== action.status) {
+      activity.push({ event: action.status, date: today(), by: userName });
+    }
+    record.activity = activity;
 
-    if (action.stockEffect === "in") stockData.postStockIn(values.items, { warehouse: values.warehouse, reference: values.refNumber || values.id, user: "You", date: values.date });
-    if (action.stockEffect === "out") stockData.postStockOut(values.items, { warehouse: values.warehouse, reference: values.refNumber || values.id, user: "You", date: values.date });
-    if (action.stockEffect === "transfer") stockData.postTransfer(values.items, { fromWarehouse: values.fromWarehouse, toWarehouse: values.toWarehouse, reference: values.id, user: "You", date: values.date });
-    if (action.stockEffect === "adjustment") stockData.postAdjustment(values, "You");
+    try {
+      if (mode === "edit") await stockData.updateRow(entityKey, recordId, record);
+      else await stockData.addRow(entityKey, record);
 
-    if (action.createsAdjustment) {
+      if (action.stockEffect === "in") await stockData.postStockIn(values.items, { warehouse: values.warehouse, reference: values.refNumber || values.id, user: userName, date: values.date });
+      if (action.stockEffect === "out") await stockData.postStockOut(values.items, { warehouse: values.warehouse, reference: values.refNumber || values.id, user: userName, date: values.date });
+      if (action.stockEffect === "transfer") await stockData.postTransfer(values.items, { fromWarehouse: values.fromWarehouse, toWarehouse: values.toWarehouse, toLocation: values.toLocation, reference: values.id, user: userName, date: values.date });
+      if (action.stockEffect === "adjustment") await stockData.postAdjustment(record, userName);
+
+      if (action.createsAdjustment) {
       // Compare against each item's frozen system-qty snapshot (taken when it was
       // added to the count), not a live re-lookup — the whole point of a count is to
       // reconcile against the balance as it stood at count time. Track newly created
       // adjustment ids locally so a multi-item count doesn't reuse the same next-id
       // (stockData.getRows() won't reflect an addRow() until the next render).
-      let priorAdjustments = stockData.getRows("stock-adjustment");
-      (values.items || []).forEach((item) => {
-        if (!item.code) return;
-        const systemQty = Number(item.systemQty) || 0;
-        const variance = (Number(item.physicalQty) || 0) - systemQty;
-        if (variance === 0) return;
-        const adjRecord = {
+        let priorAdjustments = stockData.getRows("stock-adjustment");
+        for (const item of values.items || []) {
+          if (!item.code) continue;
+          const systemQty = Number(item.systemQty) || 0;
+          const variance = (Number(item.physicalQty) || 0) - systemQty;
+          if (variance === 0) continue;
+          const adjRecord = {
           id: nextId("stock-adjustment", priorAdjustments),
           date: values.date,
           warehouse: values.warehouse,
@@ -420,19 +576,20 @@ export function StockForm({ entityKey, mode, recordId }) {
           reason: values.varianceReason || "Data Correction",
           remarks: `Auto-generated from Stock Count ${values.id}.`,
           status: "Posted",
-        };
-        stockData.addRow("stock-adjustment", adjRecord);
-        stockData.postAdjustment(adjRecord, "You");
-        priorAdjustments = [adjRecord, ...priorAdjustments];
-      });
+          };
+          await stockData.addRow("stock-adjustment", adjRecord);
+          await stockData.postAdjustment(adjRecord, userName);
+          priorAdjustments = [adjRecord, ...priorAdjustments];
+        }
+      }
+
+      showToast(action.status ? `${values.id} updated to "${action.status}".` : `${entity.singular} saved.`);
+      setPendingAction(null);
+      navigate(`/stock-management/${entityKey}`);
+    } catch (requestError) {
+      setPendingAction(null);
+      setErrorBanner(requestError.message || `Unable to save ${entity.singular.toLowerCase()}.`);
     }
-
-    if (mode === "edit") stockData.updateRow(entityKey, recordId, record);
-    else stockData.addRow(entityKey, record);
-
-    showToast(action.status ? `${values.id} updated to "${action.status}".` : `${entity.singular} saved.`);
-    setPendingAction(null);
-    navigate(`/stock-management/${entityKey}`);
   }
 
   function handleAction(action) {
@@ -457,6 +614,25 @@ export function StockForm({ entityKey, mode, recordId }) {
     outline: "border border-[var(--line)] text-[var(--ink)] hover:bg-slate-50",
     primary: "bg-[var(--primary)] text-white hover:bg-[var(--primary-deep)]",
   };
+  const visibleFormActions = entity.formActions.filter((action) => {
+    if (action.showWhen && !action.showWhen(values, mode)) return false;
+    if (action.hideWhen && action.hideWhen(values, mode)) return false;
+    return true;
+  });
+  const canEditRecord = !(lockedStatuses[entityKey] || []).includes(values.status);
+  const isReadOnlyMode = isView || (mode === "edit" && !canEditRecord);
+
+  if (stockData.loading) {
+    return <div className="rounded-md border border-[var(--line)] bg-white p-6 text-sm text-[var(--muted)]">Loading stock data...</div>;
+  }
+
+  if (recordId && !existingRecord) {
+    return (
+      <div className="rounded-md border border-red-200 bg-red-50 p-5 text-sm text-red-700">
+        Stock record not found. <Link to={`/stock-management/${entityKey}`} className="font-semibold underline">Return to list</Link>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -492,46 +668,53 @@ export function StockForm({ entityKey, mode, recordId }) {
       )}
 
       <div className="mt-4 rounded-md border border-[var(--line)] bg-white">
-        <div className="flex flex-wrap gap-1 overflow-x-auto border-b border-[var(--line)] px-3 pt-2 print:hidden">
-          {entity.form.tabs.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => setActiveTab(tab.key)}
-              className={`whitespace-nowrap rounded-t-md border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${
-                activeTab === tab.key ? "border-[var(--primary)] text-[var(--primary)]" : "border-transparent text-[var(--muted)] hover:text-[var(--ink)]"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        {!entity.form.singlePage && (
+          <div className="flex flex-wrap gap-1 overflow-x-auto border-b border-[var(--line)] px-3 pt-2 print:hidden">
+            {entity.form.tabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveTab(tab.key)}
+                className={`whitespace-nowrap rounded-t-md border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${
+                  activeTab === tab.key ? "border-[var(--primary)] text-[var(--primary)]" : "border-transparent text-[var(--muted)] hover:text-[var(--ink)]"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        )}
 
-        <div className="p-4 sm:p-5">
+        <div className={entity.form.singlePage ? "divide-y divide-[var(--line)]" : "p-4 sm:p-5"}>
           {entity.form.tabs
-            .filter((tab) => tab.key === activeTab)
+            .filter((tab) => entity.form.singlePage || tab.key === activeTab)
             .map((tab) => (
-              <div key={tab.key} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {tab.fields.map((field) => (
-                  <div key={field.key} className={field.span === "full" ? "sm:col-span-2 lg:col-span-3" : ""}>
-                    <Field
-                      field={field}
-                      value={values[field.key]}
-                      error={errors[field.key]}
-                      disabled={isView}
-                      formValues={values}
-                      getAvailable={stockData.getAvailable}
-                      onChange={(next) => handleFieldChange(field, next)}
-                    />
-                  </div>
-                ))}
-              </div>
+              <section key={tab.key} className={entity.form.singlePage ? "p-4 sm:p-5" : ""}>
+                {entity.form.singlePage && <h3 className="mb-4 text-sm font-semibold uppercase text-[var(--muted)]">{tab.label}</h3>}
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {tab.fields.map((field) => (
+                    <div key={field.key} className={field.span === "full" ? "sm:col-span-2 lg:col-span-3" : ""}>
+                      <Field
+                        field={{ ...field, options: resolveFieldOptions(field, masterData, values[field.key], values) }}
+                        value={values[field.key]}
+                        error={errors[field.key]}
+                        disabled={isReadOnlyMode}
+                        formValues={values}
+                        getAvailable={stockData.getAvailable}
+                        materialRows={materialRows}
+                        stockBatches={stockData.batches}
+                        onChange={(next) => handleFieldChange(field, next)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </section>
             ))}
         </div>
       </div>
 
       <div className="sticky bottom-0 mt-5 flex flex-wrap items-center justify-end gap-2 rounded-md border border-[var(--line)] bg-white/95 p-3 shadow-[0_-4px_12px_rgba(15,23,42,0.06)] backdrop-blur print:hidden">
-        {isView ? (
+        {isReadOnlyMode ? (
           <>
             <button type="button" onClick={handleCancel} className="rounded-md border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-slate-50">
               Close
@@ -539,19 +722,21 @@ export function StockForm({ entityKey, mode, recordId }) {
             <button type="button" onClick={() => window.print()} className="rounded-md border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-slate-50">
               Print
             </button>
-            <Link
-              to={`/stock-management/${entityKey}/${recordId}/edit`}
-              className="rounded-md bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-white hover:bg-[var(--primary-deep)]"
-            >
-              Edit {entity.singular}
-            </Link>
+            {isView && canEditRecord && (
+              <Link
+                to={`/stock-management/${entityKey}/${recordId}/edit`}
+                className="rounded-md bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-white hover:bg-[var(--primary-deep)]"
+              >
+                Edit {entity.singular}
+              </Link>
+            )}
           </>
         ) : (
           <>
             <button type="button" onClick={handleCancel} className="rounded-md border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-slate-50">
               Cancel
             </button>
-            {entity.formActions.map((action) => (
+            {visibleFormActions.map((action) => (
               <button
                 key={action.key}
                 type="button"

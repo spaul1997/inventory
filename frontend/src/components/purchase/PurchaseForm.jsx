@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { AlertCircle, ArrowLeft, Check, ChevronDown, ChevronRight as Crumb, Paperclip, Plus, Trash2, X } from "lucide-react";
 import { masterEntities } from "../../data/masterManagement.js";
-import { purchaseEntities, materialByCode, lineTotal, poTotals } from "../../data/purchaseManagement.js";
+import { formatDisplayDate, purchaseEntities, materialByCode, lineTotal, poTotals } from "../../data/purchaseManagement.js";
 import { ConfirmDialog } from "../ui.jsx";
 import { usePurchaseData } from "./PurchaseDataContext.jsx";
 import { useMasterData } from "../master/MasterDataContext.jsx";
@@ -13,14 +13,16 @@ import { WorkflowTimeline } from "./WorkflowTimeline.jsx";
 import { DocumentChain } from "./DocumentChain.jsx";
 
 const money = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 });
-const today = () => new Date().toISOString().slice(0, 10);
-const currentTime = () => new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-const currentDisplayDateTime = () => {
+const currentLocalDateTime = () => {
   const now = new Date();
-  return `${String(now.getDate()).padStart(2, "0")}-${String(now.getMonth() + 1).padStart(2, "0")}-${now.getFullYear()} ${now.toLocaleTimeString("en-IN", {
-    hour: "numeric",
-    minute: "2-digit",
-  })}`;
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}T${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+};
+const today = () => currentLocalDateTime().slice(0, 10);
+const currentTime = () => new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }).toUpperCase();
+const currentDisplayDateTime = () => formatDisplayDate(currentLocalDateTime()).toUpperCase();
+const dateTimeInputValue = (value) => {
+  const text = String(value || "");
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? `${text}T00:00` : text;
 };
 
 const idPrefixes = { "purchase-request": "PR", "purchase-order": "PO", "goods-receipt": "GRN", "purchase-issue": "PI", "purchase-return": "RET" };
@@ -51,8 +53,14 @@ const rejectedWorkflowSteps = {
   "purchase-return": ["Created", "Submitted for Approval", "Rejected"],
 };
 
-function getWorkflowSteps(entityKey, status) {
+function getWorkflowSteps(entityKey, status, activity = []) {
   if (status === "Rejected") return rejectedWorkflowSteps[entityKey] || workflowSteps[entityKey];
+  if (
+    entityKey === "purchase-request" &&
+    (["Partial Issue", "Full Issue"].includes(status) || (activity || []).some((entry) => ["Partial Issue", "Full Issue"].includes(entry.event)))
+  ) {
+    return ["Created", "Submitted for Approval", "Approved", "Issue Status", "Received"];
+  }
   return workflowSteps[entityKey];
 }
 
@@ -68,10 +76,11 @@ function optionValues(value) {
   return (Array.isArray(value) ? value : [value]).map((item) => String(item || "").trim()).filter(Boolean);
 }
 
-function resolveFieldOptions(field, getMasterRows, getPurchaseRows, currentValue) {
+function resolveFieldOptions(field, getMasterRows, getPurchaseRows, currentValue, values = {}) {
   if (field.optionsFrom) {
     const entityOptions = getMasterRows(field.optionsFrom)
       .filter((row) => row.status !== "Inactive")
+      .filter((row) => !field.dependsOn || !values[field.dependsOn] || row.warehouse === values[field.dependsOn])
       .map(optionLabel);
 
     return uniqueOptions([...entityOptions, ...optionValues(currentValue)]);
@@ -184,12 +193,25 @@ function grnReceivedQty(row) {
   return Number(row.receivedQty ?? row.unitQty ?? row.acceptedQty) || 0;
 }
 
+function grnTaxPercent(row) {
+  if (row.gst !== undefined && row.gst !== null && row.gst !== "") return Number(row.gst) || 0;
+  return (Number(row.cgst) || 0) + (Number(row.sgst) || 0) + (Number(row.igst) || 0);
+}
+
+function normalizeGoodsReceiptItems(items, fallbackLocation = "") {
+  return (Array.isArray(items) ? items : []).map((item) => {
+    const { cgst, sgst, igst, discountPct, ...rest } = item;
+    const percentageDiscount = grnNetAmount(item) * ((Number(discountPct) || 0) / 100);
+    const discountAmount = Math.round(((Number(item.discountAmount) || 0) + percentageDiscount) * 100) / 100;
+    return { ...rest, location: item.location || fallbackLocation, discountAmount, gst: grnTaxPercent(item) };
+  });
+}
+
 function grnLineAmount(row) {
   const netAmount = grnNetAmount(row);
-  const percentDiscount = netAmount * ((Number(row.discountPct) || 0) / 100);
   const discountAmount = Number(row.discountAmount) || 0;
-  const taxableAmount = Math.max(0, netAmount - percentDiscount - discountAmount);
-  const taxPercent = (Number(row.cgst) || 0) + (Number(row.sgst) || 0) + (Number(row.igst) || 0);
+  const taxableAmount = Math.max(0, netAmount - discountAmount);
+  const taxPercent = grnTaxPercent(row);
   return taxableAmount * (1 + taxPercent / 100);
 }
 
@@ -360,10 +382,11 @@ function LineItemCell({ column, row, disabled, onChange, materialRows = [], sele
   }
 
   if (column.type === "line-select") {
+    const options = uniqueOptions(column.strictOptions ? column.options || [] : [...(column.options || []), row[column.key]]);
     return (
-      <select disabled={readOnly} value={row[column.key] || ""} onChange={(event) => onChange({ ...row, [column.key]: event.target.value })} className={inputClass}>
+      <select disabled={readOnly || column.disabled} value={options.includes(row[column.key]) ? row[column.key] : ""} onChange={(event) => onChange({ ...row, [column.key]: event.target.value })} className={inputClass}>
         <option value="">{column.placeholder || "Select one..."}</option>
-        {(column.options || []).map((option) => (
+        {options.map((option) => (
           <option key={option} value={option}>
             {option}
           </option>
@@ -414,10 +437,15 @@ function LineItemCell({ column, row, disabled, onChange, materialRows = [], sele
 
   return (
     <input
-      type={column.type === "number" ? "number" : column.type === "date" ? "date" : "text"}
+      type={column.type === "number" ? "number" : ["date", "datetime-local"].includes(column.type) ? column.type : "text"}
+      min={column.type === "number" && column.min !== undefined ? column.min : undefined}
+      max={column.type === "number" && column.maxKey ? row[column.maxKey] : undefined}
       value={row[column.key] ?? ""}
       onChange={(event) => {
         let value = event.target.value;
+        if (column.type === "number" && column.min !== undefined && value !== "" && Number(value) < Number(column.min)) {
+          value = column.min;
+        }
         if (column.maxKey && value !== "" && Number(value) > Number(row[column.maxKey])) {
           value = row[column.maxKey];
         }
@@ -444,6 +472,10 @@ const lineItemNumericColumnKeys = new Set([
   "acceptedQty",
   "rejectedQty",
   "availableQty",
+  "requestedQty",
+  "previouslyIssuedQty",
+  "remainingQty",
+  "maxIssueQty",
   "returnQty",
   "issueQty",
   "price",
@@ -456,11 +488,8 @@ const lineItemNumericColumnKeys = new Set([
   "mrp",
   "rate",
   "netAmount",
-  "discountPct",
   "discountAmount",
-  "cgst",
-  "sgst",
-  "igst",
+  "gst",
   "amount",
 ]);
 
@@ -844,9 +873,10 @@ function RejectionReasonDialog({ open, reason, error, onReasonChange, onConfirm,
 function Field({ field, value, error, disabled, onChange, materialRows, stockBatches }) {
   const fieldDisabled = disabled || field.readOnly;
   const options = field.options || [];
-  const baseInput = `w-full rounded-md border bg-white px-3 py-2 text-sm text-[var(--ink)] outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-[var(--muted)] ${
+  const baseInput = `w-full rounded-md border bg-white px-3 ${field.compact ? "py-1.5" : "py-2"} text-sm text-[var(--ink)] outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-[var(--muted)] ${
     error ? "border-[var(--danger)] focus:ring-red-100" : "border-[var(--line)]"
   }`;
+  const labelClass = `${field.compact ? "mb-1" : "mb-1.5"} block text-sm font-medium text-[var(--ink)]`;
 
   if (field.type === "lineItems") {
     return (
@@ -897,7 +927,7 @@ function Field({ field, value, error, disabled, onChange, materialRows, stockBat
   if (field.type === "select") {
     return (
       <div>
-        <label className="mb-1.5 block text-sm font-medium text-[var(--ink)]">
+        <label className={labelClass}>
           {field.label}
           {field.required && <span className="ml-0.5 text-[var(--danger)]">*</span>}
         </label>
@@ -954,18 +984,18 @@ function Field({ field, value, error, disabled, onChange, materialRows, stockBat
 
   return (
     <div>
-      <label className="mb-1.5 block text-sm font-medium text-[var(--ink)]">
+      <label className={labelClass}>
         {field.label}
         {field.required && <span className="ml-0.5 text-[var(--danger)]">*</span>}
         {field.autoLabel && <span className="ml-1.5 text-xs font-normal text-[var(--muted)]">({field.autoLabel})</span>}
       </label>
       <input
-        type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"}
-        value={value || ""}
+        type={field.type === "number" ? "number" : ["date", "datetime-local"].includes(field.type) ? field.type : "text"}
+        value={field.type === "datetime-local" ? dateTimeInputValue(value) : field.uppercase ? String(value || "").toUpperCase() : value || ""}
         disabled={disabled || Boolean(field.autoLabel) || field.readOnly}
         placeholder={field.placeholder}
-        onChange={(event) => onChange(event.target.value)}
-        className={baseInput}
+        onChange={(event) => onChange(field.uppercase ? event.target.value.toUpperCase() : event.target.value)}
+        className={`${baseInput} ${field.uppercase ? "uppercase" : ""}`}
       />
       {error && <p className="mt-1 text-xs text-[var(--danger)]">{error}</p>}
     </div>
@@ -1023,7 +1053,7 @@ function printNumber(value) {
 }
 
 function printTax(row) {
-  const taxPercent = (Number(row.cgst) || 0) + (Number(row.sgst) || 0) + (Number(row.igst) || 0);
+  const taxPercent = grnTaxPercent(row);
   return taxPercent ? `${taxPercent}%` : "-";
 }
 
@@ -1076,14 +1106,14 @@ function PrintGoodsReceipt({ values, company, companyName, companyContact }) {
         <div className="grn-print-title-meta">
           <span>GRN No: <strong>{printValue(values.id)}</strong></span>
           <span>Status: <strong>{printValue(values.status)}</strong></span>
-          <span>Date: <strong>{printValue(values.date)}</strong></span>
+          <span>Date & Time: <strong>{printValue(formatDisplayDate(values.date, { includeTime: true }))}</strong></span>
         </div>
       </section>
 
       <section className="grn-print-section">
         <h3>Receipt Information</h3>
         <div className="grn-print-info">
-          <PrintInfoItem label="Receipt Date" value={values.date} />
+          <PrintInfoItem label="Receipt Date & Time" value={formatDisplayDate(values.date, { includeTime: true })} />
           <PrintInfoItem label="Purchase Order" value={values.refPO} />
           <PrintInfoItem label="Supplier" value={values.supplier} />
           <PrintInfoItem label="Warehouse" value={values.warehouse} />
@@ -1099,6 +1129,7 @@ function PrintGoodsReceipt({ values, company, companyName, companyContact }) {
             <col className="grn-print-col-index" />
             <col className="grn-print-col-item" />
             <col className="grn-print-col-batch" />
+            <col className="grn-print-col-batch" />
             <col className="grn-print-col-expiry" />
             <col className="grn-print-col-qty" />
             <col className="grn-print-col-qty" />
@@ -1113,6 +1144,7 @@ function PrintGoodsReceipt({ values, company, companyName, companyContact }) {
               <th>#</th>
               <th>Item</th>
               <th>Batch</th>
+              <th>Location</th>
               <th>Exp.</th>
               <th>Order</th>
               <th>Recv</th>
@@ -1125,7 +1157,7 @@ function PrintGoodsReceipt({ values, company, companyName, companyContact }) {
           </thead>
           <tbody>
             {items.map((item, index) => {
-              const discountText = [Number(item.discountPct) ? `${item.discountPct}%` : "", Number(item.discountAmount) ? money.format(Number(item.discountAmount)) : ""].filter(Boolean).join(" + ");
+              const discountText = Number(item.discountAmount) ? money.format(Number(item.discountAmount)) : "";
               return (
                 <tr key={`${item.code || "item"}-${index}`}>
                   <td className="grn-print-number">{index + 1}</td>
@@ -1135,6 +1167,7 @@ function PrintGoodsReceipt({ values, company, companyName, companyContact }) {
                     {discountText && <span>Discount: {discountText}</span>}
                   </td>
                   <td>{printValue(item.batch, "Item wise")}</td>
+                  <td>{printValue(item.location)}</td>
                   <td>{printValue(item.expiry)}</td>
                   <td className="grn-print-number">{printNumber(item.orderedQty)}</td>
                   <td className="grn-print-number">{printNumber(item.receivedQty)}</td>
@@ -1149,7 +1182,7 @@ function PrintGoodsReceipt({ values, company, companyName, companyContact }) {
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={10}>Total Amount</td>
+              <td colSpan={11}>Total Amount</td>
               <td className="grn-print-number">{money.format(totalAmount)}</td>
             </tr>
           </tfoot>
@@ -1185,6 +1218,281 @@ function PrintGoodsReceipt({ values, company, companyName, companyContact }) {
   );
 }
 
+function issueLineQty(item) {
+  return Number(item.issueQty ?? item.qty) || 0;
+}
+
+function issueLineAmount(item) {
+  return issueLineQty(item) * (Number(item.price) || 0);
+}
+
+function PrintPurchaseIssue({ values, company, companyName, companyContact }) {
+  const items = Array.isArray(values.items) ? values.items : [];
+  const totalAmount = items.reduce((sum, item) => sum + issueLineAmount(item), 0);
+  const showRejection = Boolean(values.rejectionReason);
+
+  return (
+    <div className="grn-print-layout hidden print:block">
+      <div className="grn-print-company">
+        <h1>{companyName}</h1>
+        {company.address && <p>{company.address}</p>}
+        {companyContact && <p>{companyContact}</p>}
+        {company.gstNumber && <p>GST: {company.gstNumber}</p>}
+      </div>
+
+      <section className="grn-print-title">
+        <div>
+          <h2>Purchase Issue Details</h2>
+          <p>{printValue(values.requisitionNo)} {"->"} {printValue(values.id)}</p>
+        </div>
+        <div className="grn-print-title-meta">
+          <span>Issue No: <strong>{printValue(values.id)}</strong></span>
+          <span>Status: <strong>{printValue(values.status)}</strong></span>
+          <span>Date & Time: <strong>{printValue(formatDisplayDate(values.date, { includeTime: true }))}</strong></span>
+        </div>
+      </section>
+
+      <section className="grn-print-section">
+        <h3>Issue Information</h3>
+        <div className="grn-print-info">
+          <PrintInfoItem label="Date & Time" value={formatDisplayDate(values.date, { includeTime: true })} />
+          <PrintInfoItem label="Department" value={values.department} />
+          <PrintInfoItem label="Requisition No" value={values.requisitionNo} />
+          <PrintInfoItem label="Purchase Order" value={values.refPO} />
+          <PrintInfoItem label="Goods Receipt" value={values.refGRN} />
+        </div>
+      </section>
+
+      <section className="grn-print-section">
+        <h3>Material Items</h3>
+        <table className="grn-print-items">
+          <colgroup>
+            <col className="grn-print-col-index" />
+            <col className="grn-print-col-item" />
+            <col className="grn-print-col-qty" />
+            <col className="grn-print-col-qty" />
+            <col className="grn-print-col-qty" />
+            <col className="grn-print-col-qty" />
+            <col className="grn-print-col-qty" />
+            <col className="grn-print-col-unit" />
+            <col className="grn-print-col-money" />
+            <col className="grn-print-col-money" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Item</th>
+              <th>Req.</th>
+              <th>Prev. Issued</th>
+              <th>Remaining</th>
+              <th>Avail.</th>
+              <th>Issued</th>
+              <th>Unit</th>
+              <th>Rate</th>
+              <th>Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item, index) => (
+              <tr key={`${item.code || "item"}-${index}`}>
+                <td className="grn-print-number">{index + 1}</td>
+                <td>
+                  <strong>{printItemLabel(item)}</strong>
+                  {item.code && <span>{item.code}</span>}
+                  {item.remarks && <span>{item.remarks}</span>}
+                </td>
+                <td className="grn-print-number">{printNumber(item.requestedQty)}</td>
+                <td className="grn-print-number">{printNumber(item.previouslyIssuedQty)}</td>
+                <td className="grn-print-number">{printNumber(item.remainingQty)}</td>
+                <td className="grn-print-number">{printNumber(item.availableQty)}</td>
+                <td className="grn-print-number">{printNumber(issueLineQty(item))}</td>
+                <td>{printValue(item.unit)}</td>
+                <td className="grn-print-number">{money.format(Number(item.price) || 0)}</td>
+                <td className="grn-print-number">{money.format(issueLineAmount(item))}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colSpan={9}>Total Issue Value</td>
+              <td className="grn-print-number">{money.format(totalAmount)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </section>
+
+      <section className="grn-print-section">
+        <h3>Issue Details</h3>
+        <div className="grn-print-info">
+          <div className="grn-print-info-item grn-print-info-wide">
+            <span>Note</span>
+            <strong>{printValue(values.note)}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="grn-print-section">
+        <h3>Approval & Issue</h3>
+        <div className="grn-print-info">
+          <PrintInfoItem label="Requested By" value={values.requestedBy} />
+          <PrintInfoItem label="Approved By" value={values.approvedBy} />
+          <PrintInfoItem label="Approval Date" value={values.approvalDate} />
+          <PrintInfoItem label="Issued By" value={values.issuedBy} />
+          <PrintInfoItem label="Issued Date" value={values.issuedDate} />
+          {showRejection && (
+            <>
+              <PrintInfoItem label="Rejected By" value={values.rejectedBy} />
+              <PrintInfoItem label="Rejection Date" value={values.rejectionDate} />
+              <div className="grn-print-info-item grn-print-info-wide">
+                <span>Rejection Reason</span>
+                <strong>{printValue(values.rejectionReason)}</strong>
+              </div>
+            </>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function returnLineQty(item) {
+  return Number(item.returnQty) || 0;
+}
+
+function returnLineAmount(item) {
+  return returnLineQty(item) * (Number(item.price) || 0);
+}
+
+function PrintPurchaseReturn({ values, company, companyName, companyContact }) {
+  const items = Array.isArray(values.items) ? values.items : [];
+  const totalAmount = items.reduce((sum, item) => sum + returnLineAmount(item), 0);
+  const showRejection = Boolean(values.rejectionReason);
+
+  return (
+    <div className="grn-print-layout hidden print:block">
+      <div className="grn-print-company">
+        <h1>{companyName}</h1>
+        {company.address && <p>{company.address}</p>}
+        {companyContact && <p>{companyContact}</p>}
+        {company.gstNumber && <p>GST: {company.gstNumber}</p>}
+      </div>
+
+      <section className="grn-print-title">
+        <div>
+          <h2>Purchase Return Details</h2>
+          <p>{printValue(values.refGRN)} {"->"} {printValue(values.id)}</p>
+        </div>
+        <div className="grn-print-title-meta">
+          <span>Return No: <strong>{printValue(values.id)}</strong></span>
+          <span>Status: <strong>{printValue(values.status)}</strong></span>
+          <span>Return Date: <strong>{printValue(formatDisplayDate(values.date))}</strong></span>
+        </div>
+      </section>
+
+      <section className="grn-print-section">
+        <h3>Return Information</h3>
+        <div className="grn-print-info">
+          <PrintInfoItem label="Return Date" value={formatDisplayDate(values.date)} />
+          <PrintInfoItem label="Supplier" value={values.supplier} />
+          <PrintInfoItem label="Warehouse" value={values.warehouse} />
+          <PrintInfoItem label="Reference GRN" value={values.refGRN} />
+          <PrintInfoItem label="Reference PO" value={values.refPO} />
+          <PrintInfoItem label="Return Reason" value={values.reason} />
+        </div>
+      </section>
+
+      <section className="grn-print-section">
+        <h3>Return Items</h3>
+        <table className="grn-print-items purchase-return-print-items">
+          <colgroup>
+            <col className="return-print-col-index" />
+            <col className="return-print-col-item" />
+            <col className="return-print-col-qty" />
+            <col className="return-print-col-qty" />
+            <col className="return-print-col-qty" />
+            <col className="return-print-col-unit" />
+            <col className="return-print-col-batch" />
+            <col className="return-print-col-reason" />
+            <col className="return-print-col-money" />
+            <col className="return-print-col-money" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Item</th>
+              <th>Received</th>
+              <th>Available</th>
+              <th>Return</th>
+              <th>Unit</th>
+              <th>Batch</th>
+              <th>Reason</th>
+              <th>Rate</th>
+              <th>Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item, index) => (
+              <tr key={`${item.code || "item"}-${index}`}>
+                <td className="grn-print-number">{index + 1}</td>
+                <td>
+                  <strong>{printItemLabel(item)}</strong>
+                  {item.code && <span>{item.code}</span>}
+                </td>
+                <td className="grn-print-number">{printNumber(item.receivedQty)}</td>
+                <td className="grn-print-number">{printNumber(item.availableQty)}</td>
+                <td className="grn-print-number">{printNumber(returnLineQty(item))}</td>
+                <td>{printValue(item.unit)}</td>
+                <td>{printValue(item.batch)}</td>
+                <td>{printValue(item.reason || values.reason)}</td>
+                <td className="grn-print-number">{money.format(Number(item.price) || 0)}</td>
+                <td className="grn-print-number">{money.format(returnLineAmount(item))}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colSpan={9}>Total Return Value</td>
+              <td className="grn-print-number">{money.format(totalAmount)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </section>
+
+      <section className="grn-print-section">
+        <h3>Return Details</h3>
+        <div className="grn-print-info">
+          <PrintInfoItem label="Supplier Credit Note" value={values.creditNoteNumber} />
+          <PrintInfoItem label="Transport Details" value={values.transportDetails} />
+          <PrintInfoItem label="Attachment" value={values.attachment} fallback="Not attached" />
+          <div className="grn-print-info-item grn-print-info-wide">
+            <span>Return Remarks</span>
+            <strong>{printValue(values.returnRemarks)}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="grn-print-section">
+        <h3>Approval</h3>
+        <div className="grn-print-info">
+          <PrintInfoItem label="Requested By" value={values.requestedBy} />
+          <PrintInfoItem label="Approved By" value={values.approvedBy} />
+          <PrintInfoItem label="Approval Date" value={values.approvalDate} />
+          {showRejection && (
+            <>
+              <PrintInfoItem label="Rejected By" value={values.rejectedBy} />
+              <PrintInfoItem label="Rejection Date" value={values.rejectionDate} />
+              <div className="grn-print-info-item grn-print-info-wide">
+                <span>Rejection Reason</span>
+                <strong>{printValue(values.rejectionReason)}</strong>
+              </div>
+            </>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export function PurchaseForm({ entityKey, mode, recordId }) {
   const entity = purchaseEntities[entityKey];
   const purchaseData = usePurchaseData();
@@ -1210,17 +1518,21 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
   }
 
   const [values, setValues] = useState(() => {
-    if (existingRecord) return { ...existingRecord };
+    if (existingRecord) {
+      return entityKey === "goods-receipt"
+        ? { ...existingRecord, items: normalizeGoodsReceiptItems(existingRecord.items, existingRecord.location) }
+        : { ...existingRecord };
+    }
 
     const base = {
       id: nextId(entityKey, purchaseData.getRows(entityKey)),
-      date: entityKey === "purchase-issue" ? currentDisplayDateTime() : today(),
+      date: entityKey === "purchase-issue" ? currentDisplayDateTime() : ["purchase-request", "purchase-order", "goods-receipt"].includes(entityKey) ? currentLocalDateTime() : today(),
       status: entityKey === "purchase-issue" ? "Issue Incomplete" : "Draft",
       items: [],
       ...(entityKey === "purchase-request" ? { requestedBy: authUserName } : {}),
       ...(entityKey === "purchase-issue" ? { requestedBy: authUserName } : {}),
       ...(entityKey === "purchase-order"
-        ? {
+          ? {
             warehouse: "",
             warehouseCode: "",
             warehouseType: "",
@@ -1242,32 +1554,50 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
     }
     if (convertFrom?.entityKey === "purchase-request" && entityKey === "purchase-issue") {
       const source = convertFrom.record;
+      const completedIssues = purchaseData
+        .getRows("purchase-issue")
+        .filter((issue) => issue.requisitionNo === source.id && ["Issued", "Issue Complete"].includes(issue.status) && issue.stockUpdated !== false);
       return {
         ...base,
         department: source.department || "",
         requisitionNo: source.id,
         items: (source.items || []).map((item) => {
+          const requestedQty = Number(item.qty) || 0;
+          const previouslyIssuedQty = completedIssues.reduce(
+            (sum, issue) =>
+              sum +
+              (issue.items || [])
+                .filter((issueItem) => issueItem.code === item.code)
+                .reduce((itemSum, issueItem) => itemSum + (Number(issueItem.issueQty ?? issueItem.qty ?? issueItem.unitQty) || 0), 0),
+            0
+          );
+          const remainingQty = Math.max(0, requestedQty - previouslyIssuedQty);
           const material = getAnyItem(item.code);
           const activeBatches = (stockData.batches || []).filter((batch) => batch.code === item.code && batch.status !== "Consumed" && (Number(batch.qty) || 0) > 0);
           const batch = activeBatches[0];
           const unit = item.unit || material?.unit || material?.baseUnit || "";
+          const availableQty = batch ? Number(batch.qty) || 0 : activeBatches.reduce((sum, row) => sum + (Number(row.qty) || 0), 0) || stockData.getTotalStock(item.code) || 0;
+          const maxIssueQty = Math.min(remainingQty, availableQty);
           return {
             code: item.code,
             name: item.name || material?.name || "",
             batch: batch?.id || "",
             expiry: batch?.expiryDate || "0",
-            qty: item.qty,
-            unitQty: item.qty,
-            issueQty: item.qty,
+            qty: maxIssueQty,
+            unitQty: maxIssueQty,
+            issueQty: maxIssueQty,
             unit,
             subUnitQty: 0,
             subUnit: material?.purchaseUnit || material?.salesUnit || unit,
-            availableQty: batch ? Number(batch.qty) || 0 : activeBatches.reduce((sum, row) => sum + (Number(row.qty) || 0), 0),
+            availableQty,
+            maxIssueQty,
             warehouse: batch?.warehouse || material?.warehouse || "Raw Material Store",
             price: item.price ?? materialUnitPrice(material) ?? 0,
-            requestedQty: item.qty,
+            requestedQty,
+            previouslyIssuedQty,
+            remainingQty,
           };
-        }),
+        }).filter((item) => item.remainingQty > 0),
       };
     }
     if (convertFrom?.entityKey === "purchase-order" && entityKey === "goods-receipt") {
@@ -1331,32 +1661,87 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
     return (stockData.batches || []).filter((batch) => batch.code === code && batch.status !== "Consumed" && (Number(batch.qty) || 0) > 0);
   }
 
+  function returnedQtyForGoodsReceiptItem(grn, item) {
+    return purchaseData
+      .getRows("purchase-return")
+      .filter((purchaseReturn) => purchaseReturn.refGRN === grn.id && (purchaseReturn.status === "Returned" || purchaseReturn.stockDeducted === true))
+      .reduce((sum, purchaseReturn) => {
+        const returnedQty = (purchaseReturn.items || [])
+          .filter((returnItem) => returnItem.code === item.code && (!item.batch || !returnItem.batch || returnItem.batch === item.batch))
+          .reduce((itemSum, returnItem) => itemSum + (Number(returnItem.returnQty) || 0), 0);
+        return sum + returnedQty;
+      }, 0);
+  }
+
+  function availableQtyForPurchaseReturnItem(grn, item) {
+    const receivedQty = Number(item.acceptedQty ?? item.receivedQty ?? item.unitQty) || 0;
+    const receiptBalance = Math.max(0, receivedQty - returnedQtyForGoodsReceiptItem(grn, item));
+    const batch = item.batch
+      ? (stockData.batches || []).find((stockBatch) => stockBatch.id === item.batch && stockBatch.code === item.code && stockBatch.warehouse === grn.warehouse)
+      : null;
+
+    if (batch) return Math.min(receiptBalance, Math.max(0, Number(batch.qty) || 0));
+
+    const warehouseBreakdown = stockData.getWarehouseBreakdown(item.code);
+    if (grn.warehouse && Object.prototype.hasOwnProperty.call(warehouseBreakdown, grn.warehouse)) {
+      return Math.min(receiptBalance, Math.max(0, Number(warehouseBreakdown[grn.warehouse]) || 0));
+    }
+
+    return receiptBalance;
+  }
+
+  function purchaseReturnItemsFromGoodsReceipt(grn) {
+    return (grn.items || []).map((item) => ({
+      code: item.code,
+      name: item.name,
+      receivedQty: Number(item.acceptedQty ?? item.receivedQty ?? item.unitQty) || 0,
+      availableQty: availableQtyForPurchaseReturnItem(grn, item),
+      returnQty: 0,
+      unit: item.unit,
+      price: Number(item.rate ?? item.price ?? materialUnitPrice(getItem(item.code))) || 0,
+      batch: item.batch,
+      reason: "",
+    }));
+  }
+
   function availableQtyForIssueItem(item) {
     if (!item.code) return Number(item.availableQty) || 0;
-    const selectedBatch = activeBatchesForItem(item.code).find((batch) => batch.id === item.batch);
+    const activeBatches = activeBatchesForItem(item.code);
+    const selectedBatch = activeBatches.find((batch) => batch.id === item.batch) || activeBatches[0];
     if (selectedBatch) return Number(selectedBatch.qty) || 0;
-    const totalBatchQty = activeBatchesForItem(item.code).reduce((sum, batch) => sum + (Number(batch.qty) || 0), 0);
-    return totalBatchQty || stockData.getTotalStock(item.code) || Number(item.availableQty) || 0;
+    return stockData.getTotalStock(item.code) || Number(item.availableQty) || 0;
   }
 
   function normalizePurchaseIssueItems(items) {
     return (Array.isArray(items) ? items : []).map((item) => {
       const material = getItem(item.code);
-      const selectedBatch = activeBatchesForItem(item.code).find((batch) => batch.id === item.batch);
+      const activeBatches = activeBatchesForItem(item.code);
+      const selectedBatch = activeBatches.find((batch) => batch.id === item.batch) || activeBatches[0];
       const unit = item.unit || material?.unit || material?.baseUnit || "";
-      const unitQty = item.qty ?? item.unitQty ?? item.issueQty ?? 0;
+      const requestedQty = Number(item.requestedQty ?? item.receivedQty ?? item.remainingQty ?? item.qty ?? item.unitQty ?? item.issueQty) || 0;
+      const previouslyIssuedQty = Number(item.previouslyIssuedQty) || 0;
+      const remainingQty = Math.max(0, Number(item.remainingQty) || requestedQty - previouslyIssuedQty);
+      const availableQty = availableQtyForIssueItem(item);
+      const maxIssueQty = Math.max(0, Math.min(remainingQty, availableQty));
+      const rawIssueQty = Number(item.issueQty ?? item.qty ?? item.unitQty) || 0;
+      const issueQty = Math.max(0, Math.min(rawIssueQty, maxIssueQty));
       return {
         ...item,
         name: item.name || material?.name || "",
-        qty: item.qty ?? unitQty,
+        qty: issueQty,
         unit,
         subUnit: item.subUnit || material?.purchaseUnit || material?.salesUnit || unit,
+        batch: item.batch || selectedBatch?.id || "",
         expiry: item.expiry || selectedBatch?.expiryDate || "0",
-        availableQty: availableQtyForIssueItem(item),
+        availableQty,
+        maxIssueQty,
         warehouse: item.warehouse || selectedBatch?.warehouse || material?.warehouse || "Raw Material Store",
         price: item.price ?? materialUnitPrice(material) ?? 0,
-        unitQty,
-        issueQty: item.issueQty ?? unitQty,
+        requestedQty,
+        previouslyIssuedQty,
+        remainingQty,
+        unitQty: issueQty,
+        issueQty,
         subUnitQty: item.subUnitQty ?? 0,
       };
     });
@@ -1365,23 +1750,34 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
   function purchaseIssueItemsFromRequisition(requestId) {
     const request = purchaseData.getRecord("purchase-request", requestId);
     if (!request) return [];
+    const issueRows = completedPurchaseIssueRows();
 
     return normalizePurchaseIssueItems(
-      (request.items || []).map((item) => ({
-        code: item.code,
-        name: item.name,
-        qty: item.qty,
-        unit: item.unit,
-        unitQty: item.qty,
-        issueQty: item.qty,
-        subUnitQty: 0,
-        subUnit: item.unit,
-        expiry: "0",
-        batch: "",
-        availableQty: 0,
-        requestedQty: item.qty,
-        price: item.price,
-      }))
+      (request.items || [])
+        .map((item) => {
+          const requestedQty = Number(item.qty) || 0;
+          const previouslyIssuedQty = issuedQtyForPurchaseRequestItem(requestId, item.code, issueRows);
+          const remainingQty = Math.max(0, requestedQty - previouslyIssuedQty);
+          return remainingQty > 0
+            ? {
+                code: item.code,
+                name: item.name,
+                qty: remainingQty,
+                unit: item.unit,
+                unitQty: remainingQty,
+                issueQty: remainingQty,
+                subUnitQty: 0,
+                subUnit: item.unit,
+                expiry: "0",
+                batch: "",
+                requestedQty,
+                previouslyIssuedQty,
+                remainingQty,
+                price: item.price,
+              }
+            : null;
+        })
+        .filter(Boolean)
     );
   }
 
@@ -1578,11 +1974,8 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
       testQty: "",
       mrp: item.price || 0,
       rate: item.price || 0,
-      discountPct: item.discount || 0,
-      discountAmount: 0,
-      cgst: 0,
-      sgst: 0,
-      igst: item.tax || 0,
+      discountAmount: Math.round(receiptQty * (Number(item.price) || 0) * ((Number(item.discount) || 0) / 100) * 100) / 100,
+      gst: item.tax || 0,
       batch: "",
       expiry: "",
     };
@@ -1660,7 +2053,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
   }
 
   function resolvedFieldOptions(field) {
-    const options = resolveFieldOptions(field, masterData.getRows, purchaseData.getRows, values[field.key]);
+    const options = resolveFieldOptions(field, masterData.getRows, purchaseData.getRows, values[field.key], values);
     if (entityKey === "goods-receipt" && field.key === "refPO") {
       return options.filter((poId) => {
         if (poId === values.refPO) return true;
@@ -1679,8 +2072,11 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
       return options.filter((requestId) => {
         if (requestId === values.requisitionNo) return true;
         const request = purchaseData.getRecord("purchase-request", requestId);
-        const hasCompletedIssue = completedPurchaseIssueRows().some((issue) => issue.requisitionNo === requestId);
-        return request && !hasCompletedIssue && (!values.department || request.department === values.department) && (request.items || []).length > 0;
+        const issueRows = completedPurchaseIssueRows();
+        const hasRemaining = (request?.items || []).some(
+          (item) => issuedQtyForPurchaseRequestItem(requestId, item.code, issueRows) < (Number(item.qty) || 0)
+        );
+        return request && hasRemaining && (!values.department || request.department === values.department);
       });
     }
 
@@ -1688,6 +2084,44 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
 
     const selectedRequestIds = new Set(optionValues(values.refPR));
     return options.filter((requestId) => selectedRequestIds.has(requestId) || hasPurchaseRequestRemaining(requestId));
+  }
+
+  function resolvedLineItemColumns(field) {
+    return (field.columns || []).map((column) => {
+      if (!column.optionsFrom) return column;
+
+      if (column.optionsFrom === "stock-location" && column.dependsOn) {
+        const selectedWarehouse = String(values[column.dependsOn] || "").trim();
+        const warehouseRow = masterData
+          .getRows("warehouse")
+          .find((row) => [row.code, row.name, row.storeName].some((value) => String(value || "").trim().toLowerCase() === selectedWarehouse.toLowerCase()));
+        const warehouseAliases = new Set(
+          [selectedWarehouse, warehouseRow?.code, warehouseRow?.name, warehouseRow?.storeName]
+            .map((value) => String(value || "").trim().toLowerCase())
+            .filter(Boolean)
+        );
+        const options = selectedWarehouse
+          ? masterData
+              .getRows(column.optionsFrom)
+              .filter((row) => row.status !== "Inactive")
+              .filter((row) => warehouseAliases.has(String(row.warehouse || "").trim().toLowerCase()))
+              .map(optionLabel)
+          : [];
+
+        return {
+          ...column,
+          options: uniqueOptions(options),
+          strictOptions: true,
+          disabled: !selectedWarehouse,
+          placeholder: selectedWarehouse ? "Select location..." : "Select warehouse first...",
+        };
+      }
+
+      return {
+        ...column,
+        options: resolveFieldOptions(column, masterData.getRows, purchaseData.getRows, "", values),
+      };
+    });
   }
 
   useEffect(() => {
@@ -1737,6 +2171,16 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
       return;
     }
 
+    if (entityKey === "goods-receipt" && field.key === "warehouse") {
+      setValues((prev) => ({
+        ...prev,
+        warehouse: next || "",
+        location: "",
+        items: prev.warehouse === next ? prev.items : (prev.items || []).map((item) => ({ ...item, location: "" })),
+      }));
+      return;
+    }
+
     setField(field.key, next);
 
     if (entityKey === "purchase-order" && field.key === "supplier") {
@@ -1765,10 +2209,11 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
           refPO: next,
           supplier: po.supplier,
           warehouse: po.warehouse,
+          location: "",
           items: remainingGoodsReceiptItemsForPurchaseOrder(po),
         }));
       } else {
-        setValues((prev) => ({ ...prev, refPO: next, supplier: "", warehouse: "", items: [] }));
+        setValues((prev) => ({ ...prev, refPO: next, supplier: "", warehouse: "", location: "", items: [] }));
       }
     }
 
@@ -1791,25 +2236,16 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
     if (entityKey === "purchase-return" && field.key === "refGRN") {
       const grn = purchaseData.getRecord("goods-receipt", next);
       if (grn) {
-        const masterItemRows = masterData.getRows("product-item");
         setValues((prev) => ({
           ...prev,
           refGRN: next,
           refPO: grn.refPO,
           supplier: grn.supplier,
           warehouse: grn.warehouse,
-          items: grn.items.map((item) => ({
-            code: item.code,
-            name: item.name,
-            receivedQty: item.acceptedQty,
-            availableQty: masterItemRows.find((r) => r.code === item.code)?.stock || 0,
-            returnQty: 0,
-            unit: item.unit,
-            price: materialUnitPrice(getItem(item.code)) || 0,
-            batch: item.batch,
-            reason: "",
-          })),
+          items: purchaseReturnItemsFromGoodsReceipt(grn),
         }));
+      } else {
+        setValues((prev) => ({ ...prev, refGRN: next, refPO: "", supplier: "", warehouse: "", items: [] }));
       }
     }
   }
@@ -1822,7 +2258,8 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
           nextErrors[field.key] = `${field.label} is required.`;
         }
         if (field.type === "lineItems") {
-          const lineItems = Array.isArray(values[field.key]) ? values[field.key] : [];
+          const sourceLineItems = Array.isArray(values[field.key]) ? values[field.key] : [];
+          const lineItems = entityKey === "purchase-issue" && field.key === "items" ? normalizePurchaseIssueItems(sourceLineItems) : sourceLineItems;
           if (field.minRows && lineItems.length < field.minRows) {
             nextErrors[field.key] = `At least ${field.minRows} item${field.minRows === 1 ? "" : "s"} required.`;
           }
@@ -1861,6 +2298,39 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
               nextErrors[field.key] = `${overReceivedItem.name || overReceivedItem.code} has only ${remainingQty} remaining for this PO.`;
             }
           }
+
+          if (!nextErrors[field.key] && entityKey === "purchase-issue" && field.key === "items") {
+            const request = purchaseData.getRecord("purchase-request", values.requisitionNo);
+            const completedIssues = completedPurchaseIssueRows();
+            const overIssueItem = lineItems.find((item) => {
+              const issueQty = Number(item.issueQty) || 0;
+              const requestedQty = Number((request?.items || []).find((requestItem) => requestItem.code === item.code)?.qty ?? item.requestedQty) || 0;
+              const previouslyIssuedQty = request
+                ? issuedQtyForPurchaseRequestItem(request.id, item.code, completedIssues)
+                : Number(item.previouslyIssuedQty) || 0;
+              const liveRemainingQty = Math.max(0, requestedQty - previouslyIssuedQty);
+              return issueQty > liveRemainingQty || issueQty > availableQtyForIssueItem(item);
+            });
+
+            if (overIssueItem) {
+              const requestedQty = Number((request?.items || []).find((requestItem) => requestItem.code === overIssueItem.code)?.qty ?? overIssueItem.requestedQty) || 0;
+              const previouslyIssuedQty = request
+                ? issuedQtyForPurchaseRequestItem(request.id, overIssueItem.code, completedIssues)
+                : Number(overIssueItem.previouslyIssuedQty) || 0;
+              const allowedQty = Math.min(Math.max(0, requestedQty - previouslyIssuedQty), availableQtyForIssueItem(overIssueItem));
+              nextErrors[field.key] = `${overIssueItem.name || overIssueItem.code} can issue a maximum of ${allowedQty}.`;
+            }
+          }
+
+          if (!nextErrors[field.key] && entityKey === "purchase-return" && field.key === "items") {
+            const invalidReturnItem = lineItems.find((item) => {
+              const returnQty = Number(item.returnQty) || 0;
+              return returnQty < 0 || returnQty > (Number(item.availableQty) || 0);
+            });
+            if (invalidReturnItem) {
+              nextErrors[field.key] = `${invalidReturnItem.name || invalidReturnItem.code} return quantity must be between 0 and ${Number(invalidReturnItem.availableQty) || 0}.`;
+            }
+          }
         }
       });
     });
@@ -1873,52 +2343,53 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
     return true;
   }
 
-  function applyStockUpdate(direction) {
+  function applyStockUpdate(direction, stockRecord = values) {
     if (entityKey === "goods-receipt" && direction === "increase") {
       stockData.postStockIn(
-        values.items.map((item) => ({
+        stockRecord.items.map((item) => ({
           code: item.code,
           name: item.name,
           batch: item.batch,
           expiry: item.expiry,
+          location: item.location || "",
           qty: grnReceivedQty(item),
           unit: item.unit,
           unitCost: Number(item.rate ?? item.price) || 0,
         })),
         {
-          warehouse: values.warehouse,
-          reference: values.id,
-          supplier: values.supplier,
+          warehouse: stockRecord.warehouse,
+          reference: stockRecord.id,
+          supplier: stockRecord.supplier,
           user: authUserName,
-          date: values.date,
+          date: stockRecord.date,
         }
       );
       return;
     }
 
     if (entityKey === "purchase-issue" && direction === "decrease") {
-      const issueWarehouse = values.warehouse || values.items.find((item) => item.warehouse)?.warehouse || "Raw Material Store";
+      const issueWarehouse = stockRecord.warehouse || stockRecord.items.find((item) => item.warehouse)?.warehouse || "Raw Material Store";
       stockData.postStockOut(
-        values.items.map((item) => ({
+        stockRecord.items.map((item) => ({
           code: item.code,
           name: item.name,
           batch: item.batch,
-          qty: Number(item.qty ?? item.unitQty ?? item.issueQty) || 0,
+          qty: Number(item.issueQty ?? item.qty ?? item.unitQty) || 0,
           unit: item.unit,
           unitCost: Number(item.price) || 0,
         })),
         {
           warehouse: issueWarehouse,
-          reference: values.id,
-          supplier: values.supplier,
+          reference: stockRecord.id,
+          supplier: stockRecord.supplier,
           user: authUserName,
-          date: values.date,
+          date: stockRecord.date,
         }
       );
       return;
     }
 
-    values.items.forEach((item) => {
+    stockRecord.items.forEach((item) => {
       const masterItemRows = masterData.getRows("product-item");
       const current = masterItemRows.find((r) => r.code === item.code);
       if (!current) return;
@@ -2103,7 +2574,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
     };
 
     try {
-      if (action.updatesStock && !values.stockUpdated) applyStockUpdate(action.updatesStock);
+      if (action.updatesStock && !values.stockUpdated) applyStockUpdate(action.updatesStock, record);
 
       if (mode === "edit") await purchaseData.updateRow(entityKey, recordId, record);
       else await purchaseData.addRow(entityKey, record);
@@ -2179,10 +2650,21 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
     primary: "bg-[var(--primary)] text-white hover:bg-[var(--primary-deep)]",
   };
   const showBackButton = ["purchase-request", "purchase-order"].includes(entityKey) && mode === "create";
+  const dedicatedPrintAreaClass =
+    entityKey === "goods-receipt"
+      ? "goods-receipt-print-area"
+      : entityKey === "purchase-issue"
+        ? "purchase-issue-print-area"
+        : entityKey === "purchase-return"
+          ? "purchase-return-print-area"
+          : "";
+  const hasDedicatedPrintLayout = Boolean(dedicatedPrintAreaClass);
 
   return (
-    <div className={isView ? `purchase-detail-print-area ${entityKey === "goods-receipt" ? "goods-receipt-print-area" : ""}` : ""}>
+    <div className={isView ? `purchase-detail-print-area ${dedicatedPrintAreaClass}` : ""}>
       {isView && entityKey === "goods-receipt" && <PrintGoodsReceipt values={values} company={company} companyName={companyName} companyContact={companyContact} />}
+      {isView && entityKey === "purchase-issue" && <PrintPurchaseIssue values={values} company={company} companyName={companyName} companyContact={companyContact} />}
+      {isView && entityKey === "purchase-return" && <PrintPurchaseReturn values={values} company={company} companyName={companyName} companyContact={companyContact} />}
 
       <p className="mb-2 flex items-center gap-1 text-xs text-[var(--muted)] print:hidden">
         <Link to="/purchase-management" className="hover:text-[var(--primary)]">
@@ -2214,7 +2696,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
         )}
       </div>
 
-      {isView && entityKey !== "goods-receipt" && (
+      {isView && !hasDedicatedPrintLayout && (
         <div className="hidden border-b border-[var(--line)] pb-4 print:block">
           <div className="workflow-print-banner rounded-md border border-[var(--line)] bg-slate-50 px-5 py-4 text-center">
             <h1 className="text-xl font-bold text-[var(--ink)]">{companyName}</h1>
@@ -2232,9 +2714,9 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
       )}
 
       {isView && (
-        <div className={`purchase-workflow-print-area mt-3 space-y-3 rounded-md border border-[var(--line)] bg-white p-4 ${entityKey === "goods-receipt" ? "print:hidden" : ""}`}>
+        <div className={`purchase-workflow-print-area mt-3 space-y-3 rounded-md border border-[var(--line)] bg-white p-4 ${hasDedicatedPrintLayout ? "print:hidden" : ""}`}>
           <DocumentChain links={documentLinks(entityKey, values)} />
-          <WorkflowTimeline steps={getWorkflowSteps(entityKey, values.status)} activity={values.activity} record={values} />
+          <WorkflowTimeline steps={getWorkflowSteps(entityKey, values.status, values.activity)} activity={values.activity} record={values} />
         </div>
       )}
 
@@ -2245,7 +2727,7 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
         </div>
       )}
 
-      <div className={`mt-4 rounded-md border border-[var(--line)] bg-white ${isView && entityKey === "goods-receipt" ? "print:hidden" : ""}`}>
+      <div className={`mt-4 rounded-md border border-[var(--line)] bg-white ${isView && hasDedicatedPrintLayout ? "print:hidden" : ""}`}>
         <div className="divide-y divide-[var(--line)]">
           {visibleTabs.map((tab) => (
             <section key={tab.key} className={tab.compact ? "p-3 sm:p-4" : "p-4 sm:p-5"}>
@@ -2272,6 +2754,8 @@ export function PurchaseForm({ entityKey, mode, recordId }) {
                       field={{
                         ...(field.type === "lineItems" && field.allowAddRemove ? { ...field, hideAddButton: true } : field),
                         options: resolvedFieldOptions(field),
+                        columns: field.type === "lineItems" ? resolvedLineItemColumns(field) : field.columns,
+                        compact: tab.compact,
                       }}
                       value={values[field.key]}
                       error={errors[field.key]}

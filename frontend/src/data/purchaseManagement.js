@@ -39,11 +39,19 @@ export function poTotals(items) {
   return { subtotal, discount, tax, grandTotal };
 }
 
-export function formatDisplayDate(value) {
-  const date = String(value || "").slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return value || "";
-  const [year, month, day] = date.split("-");
-  return `${day}-${month}-${year}`;
+export function formatDisplayDate(value, { includeTime = false } = {}) {
+  const text = String(value || "").trim();
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/);
+
+  if (!match) return text.replace(/\b(am|pm)\b/gi, (suffix) => suffix.toUpperCase());
+
+  const [, year, month, day, hours, minutes] = match;
+  if (hours === undefined || minutes === undefined) return `${day}-${month}-${year}${includeTime ? " 12:00 AM" : ""}`;
+
+  const numericHours = Number(hours);
+  const displayHours = String(numericHours % 12 || 12).padStart(2, "0");
+  const meridiem = numericHours >= 12 ? "PM" : "AM";
+  return `${day}-${month}-${year} ${displayHours}:${minutes} ${meridiem}`;
 }
 
 export const purchaseRequests = [];
@@ -350,7 +358,7 @@ export const purchaseEntities = {
       ],
       columns: [
         { key: "id", label: "Request No", mono: true },
-        { key: "date", label: "Request Date" },
+        { key: "date", label: "Request Date & Time" },
         { key: "requestedBy", label: "Requested By" },
         { key: "department", label: "Department" },
         { key: "requiredDate", label: "Required Date" },
@@ -363,9 +371,9 @@ export const purchaseEntities = {
         { key: "edit", label: "Edit", icon: "Pencil", hideWhen: (row) => ["Approved", "Partial Issue", "Full Issue", "Rejected", "Received", "Cancelled"].includes(row.status) },
         { key: "approve", label: "Approve", icon: "Check", tone: "success", showWhen: (row) => row.status === "Pending Approval", setStatus: "Approved", approvalAction: "approve", confirm: "Approve this purchase request?" },
         { key: "reject", label: "Reject", icon: "X", tone: "danger", showWhen: (row) => row.status === "Pending Approval", setStatus: "Rejected", approvalAction: "reject", requiresReason: true },
-        { key: "receive", label: "Received", icon: "PackageCheck", tone: "success", showWhen: (row) => row.status === "Approved", setStatus: "Received" },
+        { key: "receive", label: "Received", icon: "PackageCheck", tone: "success", showWhen: (row) => ["Approved", "Full Issue"].includes(row.status), setStatus: "Received" },
         { key: "convert", label: "Convert to PO", icon: "ArrowRightCircle", showWhen: (row) => row.status === "Approved", convertsTo: "purchase-order" },
-        { key: "issue", label: "Purchase Issue", icon: "Send", showWhen: (row) => row.status === "Approved", convertsTo: "purchase-issue" },
+        { key: "issue", label: "Purchase Issue", icon: "Send", showWhen: (row) => ["Approved", "Partial Issue"].includes(row.status), convertsTo: "purchase-issue" },
         { key: "print", label: "Print", icon: "Printer", print: true },
       ],
     },
@@ -375,7 +383,7 @@ export const purchaseEntities = {
           key: "basic",
           label: "Basic Information",
           fields: [
-            { key: "date", label: "Request Date", type: "date", required: true, span: "quarter" },
+            { key: "date", label: "Request Date & Time", type: "datetime-local", required: true, span: "quarter" },
             { key: "department", label: "Department", type: "select", required: true, optionsFrom: "department", searchable: true, span: "quarter" },
             { key: "requiredDate", label: "Required Date", type: "date", span: "quarter" },
             { key: "priority", label: "Priority", type: "select", options: PRIORITIES, span: "quarter" },
@@ -456,7 +464,7 @@ export const purchaseEntities = {
       columns: [
         { key: "id", label: "PO Number", mono: true, link: true },
         { key: "supplier", label: "Supplier" },
-        { key: "date", label: "PO Date" },
+        { key: "date", label: "PO Date & Time" },
         { key: "expectedDate", label: "Expected Date" },
         { key: "amount", label: "Total Amount", align: "right", money: true, render: (row) => poTotals(row.items).grandTotal },
         { key: "status", label: "Status", badge: true },
@@ -478,7 +486,7 @@ export const purchaseEntities = {
           key: "order",
           label: "Order Information",
           fields: [
-            { key: "date", label: "PO Date", type: "date", required: true, span: "quarter" },
+            { key: "date", label: "PO Date & Time", type: "datetime-local", required: true, span: "quarter" },
             { key: "supplier", label: "Supplier", type: "select", required: true, optionsFrom: "supplier", span: "quarter" },
             { key: "expectedDate", label: "Expected Delivery Date", type: "date", span: "quarter" },
             { key: "refPR", label: "Purchase Request", type: "select", searchable: true, multiple: true, optionsFromPurchase: "purchase-request", optionStatuses: ["Approved"], span: "quarter" },
@@ -580,7 +588,7 @@ export const purchaseEntities = {
         { key: "id", label: "GRN Number", mono: true, link: true },
         { key: "refPO", label: "PO Number", mono: true },
         { key: "supplier", label: "Supplier" },
-        { key: "date", label: "Receipt Date" },
+        { key: "date", label: "Receipt Date & Time" },
         { key: "warehouse", label: "Warehouse" },
         { key: "items", label: "Items", align: "right", render: (row) => row.items.length },
         { key: "status", label: "Status", badge: true },
@@ -589,7 +597,6 @@ export const purchaseEntities = {
         { key: "view", label: "View", icon: "Eye" },
         { key: "edit", label: "Edit", icon: "Pencil", hideWhen: (row) => row.status === "Completed" },
         { key: "delete", label: "Delete", icon: "Trash2", tone: "danger", showWhen: (row) => row.status === "Draft", delete: true, confirm: "Delete this draft goods receipt?" },
-        { key: "issue", label: "Purchase Issue", icon: "Send", showWhen: (row) => row.status === "Completed" && row.stockUpdated !== false, convertsTo: "purchase-issue" },
         { key: "print", label: "Print", icon: "Printer", print: true },
       ],
     },
@@ -599,7 +606,7 @@ export const purchaseEntities = {
           key: "receipt",
           label: "Receipt Information",
           fields: [
-            { key: "date", label: "Receipt Date", type: "date", required: true },
+            { key: "date", label: "Receipt Date & Time", type: "datetime-local", required: true },
             { key: "refPO", label: "Purchase Order", type: "select", required: true, searchable: true, optionsFromPurchase: "purchase-order", optionStatuses: ["Approved", "Ordered", "Partially Received"] },
             { key: "supplier", label: "Supplier", type: "select", required: true, searchable: true, optionsFrom: "supplier" },
             { key: "warehouse", label: "Warehouse", type: "select", required: true, searchable: true, optionsFrom: "warehouse" },
@@ -622,14 +629,11 @@ export const purchaseEntities = {
               requirePositiveQuantityKey: "receivedQty",
               headerTone: "teal",
               compactRows: true,
-              minWidth: "1180px",
-              columnGroups: [
-                { label: "Discount", keys: ["discountPct", "discountAmount"] },
-                { label: "GST", keys: ["cgst", "sgst", "igst"] },
-              ],
+              minWidth: "1140px",
               columns: [
                 { ...materialColumn, label: "Item", readOnly: true, required: true, width: "170px" },
                 { key: "batch", label: "Batch No", type: "text", width: "80px" },
+                { key: "location", label: "Location", type: "line-select", optionsFrom: "stock-location", dependsOn: "warehouse", width: "110px" },
                 { key: "expiry", label: "Exp. Date", type: "date", width: "120px" },
                 { key: "orderedQty", label: "Order Qty", type: "number", readOnly: true, required: true, width: "58px" },
                 { key: "receivedQty", label: "Receive Qty", type: "number", required: true, syncQuantity: true, width: "66px" },
@@ -638,11 +642,8 @@ export const purchaseEntities = {
                 { key: "mrp", label: "MRP/QTY", type: "number", width: "80px" },
                 { key: "rate", label: "Rate/QTY", type: "number", required: true, width: "80px" },
                 { key: "netAmount", label: "Net Amt.", type: "computed-grn-net", required: true, width: "90px" },
-                { key: "discountPct", label: "Dis(%)", type: "number", width: "54px" },
-                { key: "discountAmount", label: "Dis(₹)", type: "number", width: "54px" },
-                { key: "cgst", label: "CGST", type: "number", width: "48px" },
-                { key: "sgst", label: "SGST", type: "number", width: "48px" },
-                { key: "igst", label: "IGST", type: "number", width: "48px" },
+                { key: "discountAmount", label: "Dis (₹)", type: "number", min: 0, width: "76px" },
+                { key: "gst", label: "GST (%)", type: "number", min: 0, width: "62px" },
                 { key: "amount", label: "Amount", type: "computed-grn-amount", required: true, width: "90px" },
               ],
             },
@@ -710,7 +711,7 @@ export const purchaseEntities = {
       columns: [
         { key: "id", label: "Issue No", mono: true, link: true },
         { key: "requisitionNo", label: "Requisition No", mono: true },
-        { key: "date", label: "Date" },
+        { key: "date", label: "DATE & TIME" },
         { key: "department", label: "Department" },
         { key: "status", label: "Status", badge: true },
       ],
@@ -726,9 +727,9 @@ export const purchaseEntities = {
           key: "issue",
           label: "Issue Information",
           fields: [
-            { key: "date", label: "Date", type: "text", required: true, span: "quarter" },
+            { key: "date", label: "DATE & TIME", type: "text", required: true, uppercase: true, span: "quarter" },
             { key: "department", label: "Department", type: "select", required: true, searchable: true, optionsFrom: "department", span: "quarter", placeholder: "Select One....." },
-            { key: "requisitionNo", label: "Requisition No", type: "select", required: true, searchable: true, optionsFromPurchase: "purchase-request", optionStatuses: ["Approved"], span: "quarter", placeholder: "Select Requisition" },
+            { key: "requisitionNo", label: "Requisition No", type: "select", required: true, searchable: true, optionsFromPurchase: "purchase-request", optionStatuses: ["Approved", "Partial Issue"], span: "quarter", placeholder: "Select Requisition" },
           ],
         },
         {
@@ -740,14 +741,18 @@ export const purchaseEntities = {
               label: "Material Items",
               type: "lineItems",
               span: "full",
-              allowAddRemove: true,
-              totals: "request",
-              defaultRow: { qty: 0, remarks: "" },
-              requirePositiveQuantityKey: "qty",
+              allowAddRemove: false,
+              totals: "issue",
+              defaultRow: { issueQty: 0, remarks: "" },
+              requirePositiveQuantityKey: "issueQty",
               requirePositiveQuantityMessage: "At least one item must have an issue quantity.",
               columns: [
-                materialColumn,
-                { key: "qty", label: "Required Qty", type: "number" },
+                { ...materialColumn, readOnly: true },
+                { key: "requestedQty", label: "Requested Qty", type: "number", readOnly: true },
+                { key: "previouslyIssuedQty", label: "Already Issued", type: "number", readOnly: true },
+                { key: "remainingQty", label: "Remaining Qty", type: "number", readOnly: true },
+                { key: "availableQty", label: "Available Stock", type: "number", readOnly: true },
+                { key: "issueQty", label: "Issue Qty", type: "number", maxKey: "maxIssueQty" },
                 unitColumn,
                 { key: "total", label: "Total Price", type: "computed-line-total" },
                 { key: "remarks", label: "Remarks", type: "text" },
@@ -797,7 +802,8 @@ export const purchaseEntities = {
       searchKeys: ["id", "supplier"],
       dateKey: "date",
       filters: [
-        { key: "supplier", label: "Supplier", options: suppliers },
+        { key: "supplier", label: "Supplier", optionsFrom: "supplier" },
+        { key: "warehouse", label: "Warehouse", optionsFrom: "warehouse" },
         { key: "status", label: "Status", options: RETURN_STATUSES },
         { key: "reason", label: "Reason", options: RETURN_REASONS },
       ],
@@ -835,14 +841,15 @@ export const purchaseEntities = {
         {
           key: "return",
           label: "Return Information",
+          compact: true,
           fields: [
-            { key: "id", label: "Return Number", type: "text", required: true, autoLabel: "Auto-generated" },
-            { key: "date", label: "Return Date", type: "date", required: true },
-            { key: "supplier", label: "Supplier", type: "select", required: true, options: suppliers },
-            { key: "refGRN", label: "Reference GRN", type: "select", required: true, searchable: true, optionsFromPurchase: "goods-receipt" },
-            { key: "refPO", label: "Reference PO", type: "text", readOnly: true },
-            { key: "warehouse", label: "Warehouse", type: "select", options: warehouses },
-            { key: "reason", label: "Return Reason", type: "select", options: RETURN_REASONS },
+            { key: "id", label: "Return Number", type: "text", required: true, autoLabel: "Auto-generated", span: "quarter" },
+            { key: "date", label: "Return Date", type: "date", required: true, span: "quarter" },
+            { key: "supplier", label: "Supplier", type: "select", required: true, searchable: true, optionsFrom: "supplier", span: "quarter" },
+            { key: "refGRN", label: "Reference GRN", type: "select", required: true, searchable: true, optionsFromPurchase: "goods-receipt", span: "quarter" },
+            { key: "refPO", label: "Reference PO", type: "text", readOnly: true, span: "quarter" },
+            { key: "warehouse", label: "Warehouse", type: "select", searchable: true, optionsFrom: "warehouse", span: "quarter" },
+            { key: "reason", label: "Return Reason", type: "select", options: RETURN_REASONS, span: "quarter" },
           ],
         },
         {
@@ -856,12 +863,14 @@ export const purchaseEntities = {
               span: "full",
               allowAddRemove: false,
               totals: "return",
+              requirePositiveQuantityKey: "returnQty",
+              requirePositiveQuantityMessage: "At least one item must have a return quantity.",
               columns: [
                 { ...materialColumn, readOnly: true },
                 nameColumn,
                 { key: "receivedQty", label: "Received Qty", type: "number", readOnly: true },
                 { key: "availableQty", label: "Available Qty", type: "number", readOnly: true },
-                { key: "returnQty", label: "Return Qty", type: "number", maxKey: "availableQty" },
+                { key: "returnQty", label: "Return Qty", type: "number", min: 0, maxKey: "availableQty" },
                 unitColumn,
                 { key: "batch", label: "Batch No", type: "text", readOnly: true },
                 { key: "reason", label: "Reason", type: "text" },

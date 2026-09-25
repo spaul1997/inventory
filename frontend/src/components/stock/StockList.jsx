@@ -19,7 +19,9 @@ import {
 import { stockEntities } from "../../data/stockManagement.js";
 import { Badge, ConfirmDialog } from "../ui.jsx";
 import { useStockData } from "./StockDataContext.jsx";
+import { useMasterData } from "../master/MasterDataContext.jsx";
 import { useToast } from "../Toast.jsx";
+import { useAuth } from "../../stores/AuthStore.jsx";
 
 const money = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 const PAGE_SIZE = 5;
@@ -60,12 +62,14 @@ function toCsv(columns, rows) {
 
 export function StockList({ entityKey }) {
   const entity = stockEntities[entityKey];
-  const { getRows, updateRow, postTransfer, postAdjustment } = useStockData();
+  const { getRows, updateRow, postTransfer, postAdjustment, loading } = useStockData();
+  const masterData = useMasterData();
   const showToast = useToast();
+  const { session } = useAuth();
   const navigate = useNavigate();
+  const userName = session?.user?.name || "You";
   const rows = getRows(entityKey);
 
-  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({});
   const [dateFrom, setDateFrom] = useState("");
@@ -74,12 +78,6 @@ export function StockList({ entityKey }) {
   const [openMenuFor, setOpenMenuFor] = useState(null);
   const [confirmAction, setConfirmAction] = useState(null);
   const menuRef = useRef(null);
-
-  useEffect(() => {
-    setLoading(true);
-    const timer = setTimeout(() => setLoading(false), 350);
-    return () => clearTimeout(timer);
-  }, [entityKey]);
 
   useEffect(() => {
     setSearch("");
@@ -130,6 +128,22 @@ export function StockList({ entityKey }) {
     showToast(`Exported ${filteredRows.length} row(s).`);
   }
 
+  function filterOptions(filter) {
+    if (!filter.optionsFrom) return filter.options || [];
+
+    return [
+      ...new Set(
+        [
+          ...masterData
+            .getRows(filter.optionsFrom)
+            .filter((row) => row.status !== "Inactive")
+            .map((row) => row.name || row.storeName || row.code),
+          filters[filter.key],
+        ].filter(Boolean)
+      ),
+    ];
+  }
+
   function runAction(action, row) {
     setOpenMenuFor(null);
     if (action.print) {
@@ -153,19 +167,29 @@ export function StockList({ entityKey }) {
     }
   }
 
-  function applyStatusChange(action, row) {
-    if (action.stockEffect === "transfer") {
-      postTransfer(row.items, { fromWarehouse: row.fromWarehouse, toWarehouse: row.toWarehouse, reference: row.id, user: "You", date: new Date().toISOString().slice(0, 10) });
+  async function applyStatusChange(action, row) {
+    try {
+      const activity = Array.isArray(row.activity) && row.activity.length
+        ? [...row.activity]
+        : [{ event: "Created", date: row.date || new Date().toISOString().slice(0, 10), by: row.requestedBy || userName }];
+      if (activity.at(-1)?.event !== action.setStatus) {
+        activity.push({ event: action.setStatus, date: new Date().toISOString().slice(0, 10), by: userName });
+      }
+      await updateRow(entityKey, row.id, {
+        status: action.setStatus,
+        activity,
+      });
+      if (action.stockEffect === "transfer") {
+        await postTransfer(row.items, { fromWarehouse: row.fromWarehouse, toWarehouse: row.toWarehouse, toLocation: row.toLocation, reference: row.id, user: userName, date: new Date().toISOString().slice(0, 10) });
+      }
+      if (action.stockEffect === "adjustment") {
+        await postAdjustment(row, userName);
+      }
+      showToast(`${row.id} marked as ${action.setStatus}.`);
+      setConfirmAction(null);
+    } catch (requestError) {
+      showToast(requestError.message || `Unable to update ${row.id}.`);
     }
-    if (action.stockEffect === "adjustment") {
-      postAdjustment(row, "You");
-    }
-    updateRow(entityKey, row.id, {
-      status: action.setStatus,
-      activity: row.activity ? [...row.activity, { event: action.setStatus, date: new Date().toISOString().slice(0, 10), by: "You" }] : undefined,
-    });
-    showToast(`${row.id} marked as ${action.setStatus}.`);
-    setConfirmAction(null);
   }
 
   return (
@@ -239,7 +263,7 @@ export function StockList({ entityKey }) {
               className="rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm text-[var(--ink)] outline-none focus:border-[var(--primary)]"
             >
               <option value="">{filter.label}: All</option>
-              {filter.options.map((option) => (
+              {filterOptions(filter).map((option) => (
                 <option key={option} value={option}>
                   {option}
                 </option>

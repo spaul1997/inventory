@@ -102,7 +102,19 @@ function RejectionReasonDialog({ open, reason, error, onReasonChange, onConfirm,
 }
 
 function isDateColumn(column) {
-  return column.type === "date" || /date/i.test(column.key) || /date/i.test(column.label);
+  return ["date", "datetime-local"].includes(column.type) || /date/i.test(column.key) || /date/i.test(column.label);
+}
+
+function isDateTimeColumn(column) {
+  return column.type === "datetime-local" || /time/i.test(column.label);
+}
+
+function dateFilterValue(value) {
+  const text = String(value || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+
+  const displayDate = text.match(/^(\d{2})-(\d{2})-(\d{4})/);
+  return displayDate ? `${displayDate[3]}-${displayDate[2]}-${displayDate[1]}` : "";
 }
 
 function toCsv(columns, rows) {
@@ -111,7 +123,7 @@ function toCsv(columns, rows) {
     columns
       .map((col) => {
         const value = col.render ? col.render(row) : row[col.key];
-        const text = value === undefined || value === null ? "" : String(isDateColumn(col) ? formatDisplayDate(value) : value);
+        const text = value === undefined || value === null ? "" : String(isDateColumn(col) ? formatDisplayDate(value, { includeTime: isDateTimeColumn(col) }) : value);
         return `"${text.replace(/"/g, '""')}"`;
       })
       .join(",")
@@ -175,8 +187,8 @@ export function PurchaseList({ entityKey }) {
       if (value) result = result.filter((row) => String(row[key]) === value);
     });
     if (entity.list.dateKey) {
-      if (dateFrom) result = result.filter((row) => row[entity.list.dateKey] >= dateFrom);
-      if (dateTo) result = result.filter((row) => row[entity.list.dateKey] <= dateTo);
+      if (dateFrom) result = result.filter((row) => dateFilterValue(row[entity.list.dateKey]) >= dateFrom);
+      if (dateTo) result = result.filter((row) => dateFilterValue(row[entity.list.dateKey]) <= dateTo);
     }
     return result;
   }, [rows, search, filters, dateFrom, dateTo, entity.list.searchKeys, entity.list.dateKey]);
@@ -219,7 +231,7 @@ export function PurchaseList({ entityKey }) {
       const hasCompletedIssue = getRows("purchase-issue").some((issue) => {
         return issue.requisitionNo === row.id && ["Issued", "Issue Complete"].includes(issue.status) && issue.stockUpdated !== false;
       });
-      if (hasCompletedIssue) {
+      if (hasCompletedIssue && row.status !== "Full Issue") {
         showToast("This purchase request already has a completed issue and cannot be marked received.", "error");
         return;
       }
@@ -629,7 +641,7 @@ export function PurchaseList({ entityKey }) {
                     <tr key={row.id} className="border-b border-slate-100 hover:bg-slate-50/60">
                       {entity.list.columns.map((col) => {
                         const value = col.render ? col.render(row) : row[col.key];
-                        const displayValue = isDateColumn(col) ? formatDisplayDate(value) : value;
+                        const displayValue = isDateColumn(col) ? formatDisplayDate(value, { includeTime: isDateTimeColumn(col) }) : value;
                         return (
                           <td key={col.key} className={`px-3 py-3 first:pl-4 ${col.align === "right" ? "text-right" : ""}`}>
                             {col.badge ? (

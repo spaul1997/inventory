@@ -15,18 +15,37 @@ function slugify(text) {
 // data/sales/).
 const existingRoutes = {};
 
+export const companyModuleKeys = ["purchase", "sales", "manufacturing"];
+
+export function normalizeEnabledModules(value) {
+  if (!Array.isArray(value)) return [...companyModuleKeys];
+  return [...new Set(value)].filter((moduleKey) => companyModuleKeys.includes(moduleKey));
+}
+
+export function hasCompanyModule(value, moduleKey) {
+  return normalizeEnabledModules(value).includes(moduleKey);
+}
+
+export function hasPermission(value, permission) {
+  if (!permission) return true;
+  const permissions = Array.isArray(value) ? value : [];
+  return permissions.includes("*") || permissions.includes(permission);
+}
+
 const rawSections = [
   { label: "Dashboard", to: "/dashboard" },
   {
     label: "Purchase Management",
+    module: "purchase",
     children: ["Purchase Request", "Purchase Order", "Goods Receipt", "Purchase Issue", "Purchase Return"],
   },
   {
     label: "Stock Management",
-    children: ["Stock In", "Stock Out", "Stock Transfer", "Stock Adjustment", "Stock Count", "Batch / Lot Tracking"],
+    children: ["Stock Transfer", "Stock Adjustment", "Stock Count", "Batch / Lot Tracking"],
   },
   {
     label: "Manufacturing",
+    module: "manufacturing",
     children: [
       "Manufacturing Dashboard",
       "Product / Finished Goods",
@@ -43,22 +62,29 @@ const rawSections = [
   },
   {
     label: "Sales",
+    module: "sales",
     children: ["Customer Management", "Sales Order", "Product Allocation", "Delivery / Dispatch", "Sales Invoice", "Sales Return"],
   },
   {
     label: "Inventory Reports",
-    children: ["Current Stock", "Low Stock", "Stock Movement", "Purchase Report", "Stock Valuation"],
+    children: [
+      "Current Stock",
+      "Low Stock",
+      "Stock Movement",
+      { label: "Purchase Report", module: "purchase" },
+      "Stock Valuation",
+    ],
   },
   {
     label: "Manufacturing & Sales Reports",
     children: [
-      "Production Report",
-      "Material Consumption Report",
-      "WIP Report",
-      "Finished Goods Report",
-      "Sales Report",
-      "Dispatch Report",
-      "Sales Return Report",
+      { label: "Production Report", module: "manufacturing" },
+      { label: "Material Consumption Report", module: "manufacturing" },
+      { label: "WIP Report", module: "manufacturing" },
+      { label: "Finished Goods Report", module: "manufacturing" },
+      { label: "Sales Report", module: "sales" },
+      { label: "Dispatch Report", module: "sales" },
+      { label: "Sales Return Report", module: "sales" },
     ],
   },
   {
@@ -74,6 +100,8 @@ const rawSections = [
       "Warehouse Type",
       "Stock Location",
       "Location Type",
+      { label: "Users", permission: "access.manage" },
+      { label: "Roles", permission: "access.manage" },
     ],
   },
 ];
@@ -84,12 +112,31 @@ export const menu = rawSections.map((section) => {
   const sectionSlug = section.slug || slugify(section.label);
   return {
     ...section,
-    children: section.children.map((label) => ({
-      label,
-      to: existingRoutes[label] || `/${sectionSlug}/${slugify(label)}`,
-    })),
+    children: section.children.map((child) => {
+      const item = typeof child === "string" ? { label: child } : child;
+      return {
+        ...item,
+        to: existingRoutes[item.label] || `/${sectionSlug}/${slugify(item.label)}`,
+      };
+    }),
   };
 });
+
+export function menuForModules(value, permissions = []) {
+  const enabled = new Set(normalizeEnabledModules(value));
+  return menu
+    .filter((section) => !section.module || enabled.has(section.module))
+    .map((section) => {
+      if (!section.children) return section;
+      return {
+        ...section,
+        children: section.children.filter((child) =>
+          (!child.module || enabled.has(child.module)) && hasPermission(permissions, child.permission)
+        ),
+      };
+    })
+    .filter((section) => !section.children || section.children.length > 0);
+}
 
 export const placeholderLookup = new Map();
 menu.forEach((section) => {

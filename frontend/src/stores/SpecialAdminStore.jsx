@@ -23,7 +23,7 @@ const initialResources = {
     loaded: false,
   },
   payments: {
-    data: { payments: [] },
+    data: { payments: [], companies: [] },
     loading: false,
     error: "",
     loaded: false,
@@ -34,8 +34,19 @@ function createInitialResources() {
   return {
     dashboard: { ...initialResources.dashboard, data: { ...initialResources.dashboard.data } },
     companies: { ...initialResources.companies, data: { companies: [] } },
-    payments: { ...initialResources.payments, data: { payments: [] } },
+    payments: { ...initialResources.payments, data: { payments: [], companies: [] } },
   };
+}
+
+function upsertCompany(companies = [], company, prepend = false) {
+  if (!company?._id) return companies;
+  const exists = companies.some((item) => item._id === company._id);
+
+  if (!exists) {
+    return prepend ? [company, ...companies] : [...companies, company];
+  }
+
+  return companies.map((item) => item._id === company._id ? { ...item, ...company } : item);
 }
 
 export function SpecialAdminDataProvider({ children, token }) {
@@ -94,7 +105,69 @@ export function SpecialAdminDataProvider({ children, token }) {
         ...prev.companies,
         data: {
           ...prev.companies.data,
-          companies: [result.company, ...(prev.companies.data.companies || [])],
+          companies: upsertCompany(prev.companies.data.companies, result.company, true),
+        },
+        loaded: true,
+      },
+      payments: {
+        ...prev.payments,
+        data: {
+          ...prev.payments.data,
+          companies: upsertCompany(prev.payments.data.companies, result.company),
+        },
+      },
+    }));
+
+    return result;
+  }, [token]);
+
+  const updateCompany = useCallback(async (companyId, values) => {
+    const result = await specialAdminService.updateCompany(companyId, values, token);
+
+    setResources((prev) => ({
+      ...prev,
+      dashboard: {
+        ...prev.dashboard,
+        loaded: false,
+      },
+      companies: {
+        ...prev.companies,
+        data: {
+          ...prev.companies.data,
+          companies: upsertCompany(prev.companies.data.companies, result.company),
+        },
+        loaded: true,
+      },
+      payments: {
+        ...prev.payments,
+        data: {
+          ...prev.payments.data,
+          companies: upsertCompany(prev.payments.data.companies, result.company),
+        },
+      },
+    }));
+
+    return result;
+  }, [token]);
+
+  const createPayment = useCallback(async (values) => {
+    const result = await specialAdminService.createPayment(values, token);
+
+    setResources((prev) => ({
+      ...prev,
+      dashboard: {
+        ...prev.dashboard,
+        loaded: false,
+      },
+      companies: {
+        ...prev.companies,
+        loaded: false,
+      },
+      payments: {
+        ...prev.payments,
+        data: {
+          ...prev.payments.data,
+          payments: [result.payment, ...(prev.payments.data.payments || [])],
         },
         loaded: true,
       },
@@ -103,7 +176,46 @@ export function SpecialAdminDataProvider({ children, token }) {
     return result;
   }, [token]);
 
-  const value = useMemo(() => ({ resources, loadResource, createCompany }), [resources, loadResource, createCompany]);
+  const updatePaymentStatus = useCallback(async (paymentId, paymentStatus) => {
+    const result = await specialAdminService.updatePaymentStatus(paymentId, paymentStatus, token);
+
+    setResources((prev) => ({
+      ...prev,
+      dashboard: {
+        ...prev.dashboard,
+        loaded: false,
+      },
+      companies: {
+        ...prev.companies,
+        data: {
+          ...prev.companies.data,
+          companies: (prev.companies.data.companies || []).map((company) =>
+            company._id === result.company?._id ? result.company : company
+          ),
+        },
+      },
+      payments: {
+        ...prev.payments,
+        data: {
+          ...prev.payments.data,
+          payments: (prev.payments.data.payments || []).map((payment) =>
+            payment._id === result.payment._id ? result.payment : payment
+          ),
+          companies: (prev.payments.data.companies || []).map((company) =>
+            company._id === result.company?._id ? { ...company, ...result.company } : company
+          ),
+        },
+        loaded: true,
+      },
+    }));
+
+    return result;
+  }, [token]);
+
+  const value = useMemo(
+    () => ({ resources, loadResource, createCompany, updateCompany, createPayment, updatePaymentStatus }),
+    [resources, loadResource, createCompany, updateCompany, createPayment, updatePaymentStatus]
+  );
 
   return <SpecialAdminContext.Provider value={value}>{children}</SpecialAdminContext.Provider>;
 }
@@ -136,5 +248,8 @@ export function useSpecialAdminActions() {
 
   return {
     createCompany: ctx.createCompany,
+    updateCompany: ctx.updateCompany,
+    createPayment: ctx.createPayment,
+    updatePaymentStatus: ctx.updatePaymentStatus,
   };
 }

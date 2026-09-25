@@ -29,7 +29,7 @@ export function MegaMenu({ sections }) {
   }, [location.pathname]);
 
   return (
-    <div ref={containerRef} className="flex flex-wrap items-center gap-1">
+    <div ref={containerRef} className="flex flex-wrap items-center justify-center gap-1">
       {sections.map((section, index) => {
         if (!section.children) {
           return (

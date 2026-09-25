@@ -8,7 +8,36 @@ const tones = {
   danger: "text-[var(--danger)] bg-red-50",
 };
 
-export function Metric({ label, value, sub, icon: Icon, tone = "primary", trend }) {
+export function Metric({ label, value, sub, icon: Icon, tone = "primary", trend, compact = false }) {
+  if (compact) {
+    return (
+      <div className="rounded-md border border-t-[3px] border-[var(--line)] border-t-[var(--primary)] bg-white px-3 py-2.5">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${tones[tone]}`}>
+            <Icon size={16} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-2">
+              <p className="truncate text-lg font-semibold leading-6 text-[var(--ink)]">{value}</p>
+              {trend && (
+                <span
+                  className={`inline-flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${
+                    trend.direction === "up" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
+                  }`}
+                >
+                  {trend.direction === "up" ? <ArrowUpRight size={11} /> : <ArrowDownRight size={11} />}
+                  {trend.value}
+                </span>
+              )}
+            </div>
+            <p className="truncate text-xs font-medium leading-4 text-[var(--muted)]">{label}</p>
+            {sub && <p className="mt-0.5 truncate text-[11px] leading-4 text-[var(--muted)]" title={sub}>{sub}</p>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-md border border-t-4 border-[var(--line)] border-t-[var(--primary)] bg-white p-4">
       <div className="flex items-start justify-between">

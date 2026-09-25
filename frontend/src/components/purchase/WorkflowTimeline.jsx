@@ -5,6 +5,7 @@ const stepEventAliases = {
   Created: ["Draft"],
   "Submitted for Approval": ["Pending Approval"],
   "Submitted for Inspection": ["Pending Inspection"],
+  "Issue Status": ["Partial Issue", "Full Issue"],
   "Sent to Supplier": ["Ordered"],
   "Complete GRN": ["Received", "Completed", "Stock Updated"],
   "Completed GRN": ["Received", "Completed GRN", "Completed", "Stock Updated"],
@@ -60,6 +61,7 @@ export function WorkflowTimeline({ steps, activity = [], record = {} }) {
         const done = Boolean(stepActivity);
         const isCurrent = !done && !currentFound;
         const reason = stepActivity?.reason || (step === "Rejected" ? record.rejectionReason : "");
+        const stepLabel = step === "Issue Status" && stepActivity ? stepActivity.event : step;
         if (isCurrent) currentFound = true;
 
         return (
@@ -74,7 +76,7 @@ export function WorkflowTimeline({ steps, activity = [], record = {} }) {
               </span>
               <span>
                 <span className={`workflow-timeline-label block whitespace-nowrap text-xs font-medium ${done || isCurrent ? "text-[var(--ink)]" : "text-[var(--muted)]"}`}>
-                  {step}
+                  {stepLabel}
                 </span>
                 {stepActivity && (
                   <span className="workflow-timeline-meta mt-0.5 block text-[11px] leading-4 text-[var(--muted)]">

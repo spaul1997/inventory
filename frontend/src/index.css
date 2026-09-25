@@ -17,6 +17,48 @@
   --success: #16a34a;
 }
 
+@media print {
+  body.subscription-invoice-only-print * {
+    visibility: hidden !important;
+  }
+
+  body.subscription-invoice-only-print .subscription-invoice-modal,
+  body.subscription-invoice-only-print .subscription-invoice-print-area,
+  body.subscription-invoice-only-print .subscription-invoice-print-area * {
+    visibility: visible !important;
+  }
+
+  body.subscription-invoice-only-print .subscription-invoice-modal {
+    position: static !important;
+    overflow: visible !important;
+    background: #fff !important;
+    padding: 0 !important;
+  }
+
+  body.subscription-invoice-only-print .subscription-invoice-modal > div {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+  }
+
+  body.subscription-invoice-only-print .subscription-invoice-controls {
+    display: none !important;
+  }
+
+  body.subscription-invoice-only-print .subscription-invoice-print-area {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    min-height: 100% !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: 12mm !important;
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+}
+
 html,
 body,
 #root {
@@ -153,30 +195,55 @@ select {
     line-height: 13px !important;
   }
   body.purchase-workflow-only-print .purchase-detail-print-area .workflow-timeline {
+    display: flex !important;
+    width: 100% !important;
+    flex-wrap: nowrap !important;
+    align-items: flex-start !important;
     gap: 0 !important;
-    margin-top: 4px !important;
+    margin-top: 6px !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
   body.purchase-workflow-only-print .purchase-detail-print-area .workflow-timeline-step {
+    display: flex !important;
+    flex: 1 1 0 !important;
+    width: 0 !important;
     max-width: none !important;
-    min-width: 34mm !important;
+    min-width: 0 !important;
+    gap: 4px !important;
+  }
+  body.purchase-workflow-only-print .purchase-detail-print-area .workflow-timeline-step > span:last-child {
+    min-width: 0 !important;
   }
   body.purchase-workflow-only-print .purchase-detail-print-area .workflow-timeline-marker {
-    width: 18px !important;
-    height: 18px !important;
-    font-size: 8px !important;
+    width: 16px !important;
+    height: 16px !important;
+    flex: 0 0 16px !important;
+    font-size: 7px !important;
   }
   body.purchase-workflow-only-print .purchase-detail-print-area .workflow-timeline-label {
-    font-size: 9px !important;
-    line-height: 12px !important;
+    white-space: normal !important;
+    font-size: 8px !important;
+    font-weight: 700 !important;
+    line-height: 10px !important;
   }
   body.purchase-workflow-only-print .purchase-detail-print-area .workflow-timeline-meta,
   body.purchase-workflow-only-print .purchase-detail-print-area .workflow-timeline-reason {
-    font-size: 8px !important;
-    line-height: 10px !important;
+    white-space: normal !important;
+    overflow-wrap: normal !important;
+    font-size: 6.5px !important;
+    line-height: 8px !important;
   }
   body.purchase-workflow-only-print .purchase-detail-print-area .workflow-timeline-line {
-    width: 13mm !important;
-    margin-top: 9px !important;
+    width: 4mm !important;
+    flex: 0 0 4mm !important;
+    margin-top: 8px !important;
+  }
+  body.purchase-workflow-only-print .purchase-detail-print-area .purchase-workflow-print-area {
+    padding: 9px 10px !important;
+    background: #fff !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
   body.purchase-workflow-only-print .purchase-detail-print-area .grid {
     display: grid !important;
@@ -338,11 +405,15 @@ select {
 }
 
 @media print {
-  body.purchase-workflow-only-print .goods-receipt-print-area {
+  body.purchase-workflow-only-print .goods-receipt-print-area,
+  body.purchase-workflow-only-print .purchase-issue-print-area,
+  body.purchase-workflow-only-print .purchase-return-print-area {
     padding: 6mm 8mm !important;
   }
 
-  body.purchase-workflow-only-print .goods-receipt-print-area .grn-print-layout {
+  body.purchase-workflow-only-print .goods-receipt-print-area .grn-print-layout,
+  body.purchase-workflow-only-print .purchase-issue-print-area .grn-print-layout,
+  body.purchase-workflow-only-print .purchase-return-print-area .grn-print-layout {
     display: block !important;
     width: 100% !important;
     color: #0f2a43 !important;
@@ -350,7 +421,9 @@ select {
     line-height: 1.25 !important;
   }
 
-  body.purchase-workflow-only-print .goods-receipt-print-area .grn-print-layout table {
+  body.purchase-workflow-only-print .goods-receipt-print-area .grn-print-layout table,
+  body.purchase-workflow-only-print .purchase-issue-print-area .grn-print-layout table,
+  body.purchase-workflow-only-print .purchase-return-print-area .grn-print-layout table {
     width: 100% !important;
     min-width: 0 !important;
     table-layout: fixed !important;
@@ -363,7 +436,23 @@ select {
   body.purchase-workflow-only-print .goods-receipt-print-area .grn-print-layout th:nth-child(3),
   body.purchase-workflow-only-print .goods-receipt-print-area .grn-print-layout td:nth-child(3),
   body.purchase-workflow-only-print .goods-receipt-print-area .grn-print-layout th:nth-child(4),
-  body.purchase-workflow-only-print .goods-receipt-print-area .grn-print-layout td:nth-child(4) {
+  body.purchase-workflow-only-print .goods-receipt-print-area .grn-print-layout td:nth-child(4),
+  body.purchase-workflow-only-print .purchase-issue-print-area .grn-print-layout th:first-child,
+  body.purchase-workflow-only-print .purchase-issue-print-area .grn-print-layout td:first-child,
+  body.purchase-workflow-only-print .purchase-issue-print-area .grn-print-layout th:nth-child(2),
+  body.purchase-workflow-only-print .purchase-issue-print-area .grn-print-layout td:nth-child(2),
+  body.purchase-workflow-only-print .purchase-issue-print-area .grn-print-layout th:nth-child(3),
+  body.purchase-workflow-only-print .purchase-issue-print-area .grn-print-layout td:nth-child(3),
+  body.purchase-workflow-only-print .purchase-issue-print-area .grn-print-layout th:nth-child(4),
+  body.purchase-workflow-only-print .purchase-issue-print-area .grn-print-layout td:nth-child(4),
+  body.purchase-workflow-only-print .purchase-return-print-area .grn-print-layout th:first-child,
+  body.purchase-workflow-only-print .purchase-return-print-area .grn-print-layout td:first-child,
+  body.purchase-workflow-only-print .purchase-return-print-area .grn-print-layout th:nth-child(2),
+  body.purchase-workflow-only-print .purchase-return-print-area .grn-print-layout td:nth-child(2),
+  body.purchase-workflow-only-print .purchase-return-print-area .grn-print-layout th:nth-child(3),
+  body.purchase-workflow-only-print .purchase-return-print-area .grn-print-layout td:nth-child(3),
+  body.purchase-workflow-only-print .purchase-return-print-area .grn-print-layout th:nth-child(4),
+  body.purchase-workflow-only-print .purchase-return-print-area .grn-print-layout td:nth-child(4) {
     width: auto !important;
   }
 
@@ -541,6 +630,34 @@ select {
 
   .grn-print-col-money {
     width: 8% !important;
+  }
+
+  .purchase-return-print-items .return-print-col-index {
+    width: 4% !important;
+  }
+
+  .purchase-return-print-items .return-print-col-item {
+    width: 22% !important;
+  }
+
+  .purchase-return-print-items .return-print-col-qty {
+    width: 7% !important;
+  }
+
+  .purchase-return-print-items .return-print-col-unit {
+    width: 8% !important;
+  }
+
+  .purchase-return-print-items .return-print-col-batch {
+    width: 10% !important;
+  }
+
+  .purchase-return-print-items .return-print-col-reason {
+    width: 14% !important;
+  }
+
+  .purchase-return-print-items .return-print-col-money {
+    width: 10.5% !important;
   }
 
   .grn-print-documents {
